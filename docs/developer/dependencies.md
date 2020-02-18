@@ -95,6 +95,23 @@ sudo apt install rustc cargo -y
 curl https://sh.rustup.rs -sSf | sh
 source $HOME/.cargo/env
 ```
+
+## Formatting Haskell files
+
+You need `ormolu` on your PATH, get it with `stack install ormolu`
+
+## Generating license headers
+
+We use [`licensure`](https://github.com/chasinglogic/licensure).
+
+As of 2020-02-18, you need the latest version:
+
+```
+git clone https://github.com/chasinglogic/licensure
+cd licensure
+cargo install --path .
+```
+
 ## makedeb
 
 This is a tool to create debian-style binary packages. It is optional, and is only used if you want to install debian-style packages on your debian or ubuntu system.
