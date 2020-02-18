@@ -61,5 +61,5 @@ comments:
       - rs
     commenter:
       type: line
-      comment_char: "#"
+      comment_char: "//"
       trailing_lines: 1
