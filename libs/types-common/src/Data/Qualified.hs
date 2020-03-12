@@ -4,17 +4,48 @@ module Data.Qualified where
 
 import Data.Aeson (FromJSON, ToJSON, withText)
 import qualified Data.Aeson as Aeson
+import Data.Attoparsec.ByteString (takeByteString)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Conversion as BS.C
+import Data.ByteString.Conversion (FromByteString (parser))
 import Data.Domain (Domain, domainText, mkDomain)
 import Data.Handle (Handle (..))
 import Data.Id (Id (toUUID))
 import Data.String.Conversions (cs)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text.E
 import qualified Data.UUID as UUID
 import Imports hiding (local)
 import Servant.API (FromHttpApiData (parseUrlPiece))
 import Test.QuickCheck (Arbitrary (arbitrary))
+
+----------------------------------------------------------------------
+-- OPTIONALLY QUALIFIED
+
+type OptionallyQualified a = Either a (Qualified a)
+
+unqualified :: a -> OptionallyQualified a
+unqualified = Left
+
+qualified :: Qualified a -> OptionallyQualified a
+qualified = Right
+
+{-
+Either is a hack, conceptually we want this:
+
+data OptionallyQualified a
+  = OptionallyQualified
+      { _oqLocalPart :: a,
+        _oqDomain :: Maybe Domain
+      }
+-}
+
+-- OptionallyQualified (Id a)
+instance FromByteString (Either (Id a) (Qualified (Id a))) where
+  parser = asum [Left <$> parser, Right <$> parser]
+
+----------------------------------------------------------------------
+-- QUALIFIED
 
 data Qualified a
   = Qualified
@@ -70,6 +101,15 @@ instance FromJSON (Qualified Handle) where
 
 instance FromHttpApiData (Qualified Handle) where
   parseUrlPiece = first cs . mkQualifiedHandle
+
+instance FromByteString (Qualified (Id a)) where
+  parser = do
+    bs <- takeByteString
+    case makeFromByteString bs of
+      Left err -> fail err
+      Right qi -> pure qi
+    where
+      makeFromByteString = mkQualifiedId <=< first show . Text.E.decodeUtf8'
 
 ----------------------------------------------------------------------
 -- ARBITRARY
