@@ -85,10 +85,10 @@ import System.Logger.Class as Log hiding ((.=), name)
 -----------------------------------------------------------------------------
 -- Event Handlers
 
-onUserEvent :: UserId -> Maybe ConnId -> UserEvent -> AppIO ()
-onUserEvent orig conn e =
+onUserEvent :: UserId -> Maybe ConnId -> () -> AppIO ()
+onUserEvent orig conn (undefined -> e) =
   updateSearchIndex orig e
-    *> dispatchNotifications orig conn e
+    *> dispatchNotifications orig conn (undefined e)
     *> journalEvent orig e
 
 onConnectionEvent ::
@@ -178,9 +178,8 @@ journalEvent orig e = case e of
 -- | Notify the origin user's contact list (first-level contacts),
 -- as well as his other clients about a change to his user account
 -- or profile.
-dispatchNotifications :: UserId -> Maybe ConnId -> UserEvent -> AppIO ()
--- TODO(event)
-dispatchNotifications orig conn e = case e of
+dispatchNotifications :: UserId -> Maybe ConnId -> () -> AppIO ()
+dispatchNotifications orig conn (undefined -> e) = case e of
   UserCreated {} -> return ()
   UserSuspended {} -> return ()
   UserResumed {} -> return ()
@@ -188,6 +187,7 @@ dispatchNotifications orig conn e = case e of
   UserLegalHoldDisabled {} -> notifyContacts event orig Push.RouteAny conn
   UserLegalHoldEnabled {} -> notifyContacts event orig Push.RouteAny conn
   UserUpdated {..}
+    -- bug hiding?
     | isJust eupLocale -> notifySelf event orig Push.RouteDirect conn
     | otherwise -> notifyContacts event orig Push.RouteDirect conn
   UserActivated {} -> notifySelf event orig Push.RouteAny conn

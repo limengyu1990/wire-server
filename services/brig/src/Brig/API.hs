@@ -911,17 +911,18 @@ addClient (undefined -> new) usr con ip = do
   -- Users can't add legal hold clients
   when (newClientType new == LegalHoldClientType) $
     throwE (clientError ClientLegalHoldCannotBeAdded)
-  API.addClient usr (Just con) (ipAddr <$> ip) (undefined new) !>> clientError
+  -- notifies contacts if client is legalhold, but it can't be here
+  API.addClient (undefined usr) (Just con) (ipAddr <$> ip) (undefined new) !>> clientError
 
 -- | Add a client without authentication checks
 addClientInternalH :: UserId ::: JsonRequest NewClient ::: Maybe ConnId ::: JSON -> Handler Response
 addClientInternalH (usr ::: req ::: connId ::: _) = do
   new <- parseJsonBody req
-  setStatus status201 . json <$> addClientInternal usr (undefined new) connId
+  setStatus status201 . json <$> addClientInternal (undefined usr) (undefined new) connId
 
-addClientInternal :: UserId -> () -> Maybe ConnId -> Handler Client
-addClientInternal usr (undefined -> new) connId = do
-  API.addClient usr connId Nothing (undefined new) !>> clientError
+addClientInternal :: () -> () -> Maybe ConnId -> Handler Client
+addClientInternal (undefined -> usr) (undefined -> new) connId = do
+  API.addClient (undefined usr) connId Nothing (undefined new) !>> clientError
 
 rmClientH :: JsonRequest RmClient ::: UserId ::: ConnId ::: ClientId ::: JSON -> Handler Response
 rmClientH (req ::: usr ::: con ::: clt ::: _) = do
@@ -935,7 +936,7 @@ rmClient body usr con (undefined -> clt) = do
 legalHoldClientRequestedH :: UserId ::: JsonRequest LegalHoldClientRequest ::: JSON -> Handler Response
 legalHoldClientRequestedH (targetUser ::: req ::: _) = do
   clientRequest <- parseJsonBody req
-  lift $ API.legalHoldClientRequested targetUser clientRequest
+  lift $ API.legalHoldClientRequested (undefined targetUser) clientRequest
   return $ setStatus status200 empty
 
 removeLegalHoldClientH :: UserId ::: JSON -> Handler Response
@@ -1210,7 +1211,7 @@ instance ToJSON GetPasswordResetCodeResp where
 updateUserH :: UserId ::: ConnId ::: JsonRequest UserUpdate -> Handler Response
 updateUserH (uid ::: conn ::: req) = do
   uu <- parseJsonBody req
-  lift $ API.updateUser uid conn uu
+  lift $ API.updateUser (undefined uid) conn uu
   return empty
 
 changeAccountStatusH :: UserId ::: JsonRequest AccountStatusUpdate -> Handler Response
@@ -1309,12 +1310,12 @@ getHandleInfoH (_ ::: _ ::: h) = do
 
 changeHandleH :: UserId ::: ConnId ::: JsonRequest HandleUpdate -> Handler Response
 changeHandleH (u ::: conn ::: req) = do
-  empty <$ (changeHandle u conn =<< parseJsonBody req)
+  empty <$ (changeHandle (undefined u) conn =<< parseJsonBody req)
 
-changeHandle :: UserId -> ConnId -> HandleUpdate -> Handler ()
-changeHandle u conn (HandleUpdate h) = do
+changeHandle :: () -> ConnId -> HandleUpdate -> Handler ()
+changeHandle (undefined -> u) conn (HandleUpdate h) = do
   handle <- validateHandle h
-  API.changeHandle u conn handle !>> changeHandleError
+  API.changeHandle (undefined u) conn handle !>> changeHandleError
 
 beginPasswordResetH :: JSON ::: JsonRequest NewPasswordReset -> Handler Response
 beginPasswordResetH (_ ::: req) = do
@@ -1490,7 +1491,7 @@ updateRichInfo uid rup = do
 deleteUserH :: UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
 deleteUserH (u ::: r ::: _) = do
   body <- parseJsonBody r
-  res <- API.deleteUser u (deleteUserPassword body) !>> deleteUserError
+  res <- API.deleteUser u (undefined deleteUserPassword body) !>> deleteUserError
   return $ case res of
     Nothing -> setStatus status200 empty
     Just ttl -> setStatus status202 (json (DeletionCodeTimeout ttl))
@@ -1498,7 +1499,7 @@ deleteUserH (u ::: r ::: _) = do
 verifyDeleteUserH :: JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
 verifyDeleteUserH (r ::: _) = do
   body <- parseJsonBody r
-  API.verifyDeleteUser body !>> deleteUserError
+  API.verifyDeleteUser (undefined body) !>> deleteUserError
   return (setStatus status200 empty)
 
 getContactListH :: JSON ::: UserId -> Handler Response

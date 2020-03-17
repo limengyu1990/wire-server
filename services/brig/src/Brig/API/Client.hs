@@ -56,8 +56,8 @@ import UnliftIO.Async (Concurrently (Concurrently, runConcurrently))
 
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
-addClient :: UserId -> Maybe ConnId -> Maybe IP -> () -> ExceptT ClientError AppIO Client
-addClient u con ip (undefined -> new) = do
+addClient :: () -> Maybe ConnId -> Maybe IP -> () -> ExceptT ClientError AppIO Client
+addClient (undefined -> u) con ip (undefined -> new) = do
   acc <- lift (Data.lookupAccount u) >>= maybe (throwE (ClientUserNotFound u)) return
   loc <- maybe (return Nothing) locationOf ip
   maxPermClients <- fromMaybe Opt.defUserMaxPermClients <$> Opt.setUserMaxPermClients <$> view settings
@@ -67,7 +67,8 @@ addClient u con ip (undefined -> new) = do
     for_ old $ execDelete u con . undefined
     Intra.newClient u (clientId clt)
     Intra.onClientEvent u con (undefined ClientAdded u clt)
-    when (clientType clt == LegalHoldClientType) $ Intra.onUserEvent u con (UserLegalHoldEnabled u)
+    -- notifies contacts
+    when (clientType clt == LegalHoldClientType) $ Intra.onUserEvent u con (undefined UserLegalHoldEnabled u)
     when (count > 1)
       $ for_ (userEmail usr)
       $ \email ->
@@ -179,9 +180,9 @@ pubClient c =
       pubClientClass = clientClass c
     }
 
-legalHoldClientRequested :: UserId -> LegalHoldClientRequest -> AppIO ()
-legalHoldClientRequested targetUser (LegalHoldClientRequest _requester lastPrekey') =
-  Intra.onUserEvent targetUser Nothing lhClientEvent
+legalHoldClientRequested :: () -> LegalHoldClientRequest -> AppIO ()
+legalHoldClientRequested (undefined -> targetUser) (LegalHoldClientRequest _requester lastPrekey') =
+  Intra.onUserEvent targetUser Nothing (undefined lhClientEvent)
   where
     clientId :: ClientId
     clientId = clientIdFromPrekey $ unpackLastPrekey lastPrekey'
@@ -197,4 +198,5 @@ removeLegalHoldClient (undefined -> uid) = do
   let legalHoldClients = filter ((== LegalHoldClientType) . clientType) clients
   -- maybe log if this isn't the case
   forM_ legalHoldClients (execDelete uid Nothing . undefined)
-  Intra.onUserEvent uid Nothing (UserLegalHoldDisabled uid)
+  -- notifies contacts
+  Intra.onUserEvent uid Nothing (undefined UserLegalHoldDisabled uid)

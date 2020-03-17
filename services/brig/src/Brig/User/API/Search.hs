@@ -114,11 +114,12 @@ isSearchable = checkIndex
 setSearchableH :: UserId ::: JsonRequest SearchableStatus -> Handler Response
 setSearchableH (u ::: r) = do
   s <- parseJsonBody r
-  lift (setSearchable u s)
+  lift (setSearchable u (undefined s))
   return (setStatus status200 empty)
 
-setSearchable :: UserId -> SearchableStatus -> AppIO ()
-setSearchable u s = do
+setSearchable :: UserId -> () -> AppIO ()
+setSearchable u (undefined -> s) = do
   DB.updateSearchableStatus u s
-  Intra.onUserEvent u Nothing (searchableStatusUpdated u s)
+  -- notifies contacts
+  Intra.onUserEvent u Nothing (undefined searchableStatusUpdated u s)
   return ()

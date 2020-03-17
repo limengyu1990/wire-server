@@ -159,7 +159,8 @@ createUser new@NewUser {..} = do
   activatedTeam <- lift $ do
     Data.insertAccount account Nothing pw False searchable
     Intra.createSelfConv uid
-    Intra.onUserEvent uid Nothing (UserCreated account)
+    -- notifies nobody
+    Intra.onUserEvent uid Nothing (undefined UserCreated account)
     -- If newUserEmailCode is set, team gets activated _now_ else createUser fails
     case (tid, newTeam) of
       (Just t, Just nt) -> createTeam uid (isJust newUserEmailCode) (bnuTeam nt) t
@@ -303,10 +304,11 @@ createUser new@NewUser {..} = do
 -- FUTUREWORK: this and other functions should refuse to modify a ManagedByScim user. See
 -- {#DevScimOneWaySync}
 
-updateUser :: UserId -> ConnId -> UserUpdate -> AppIO ()
-updateUser uid conn uu = do
+updateUser :: () -> ConnId -> UserUpdate -> AppIO ()
+updateUser (undefined -> uid) conn uu = do
   Data.updateUser uid uu
-  Intra.onUserEvent uid (Just conn) (profileUpdated uid uu)
+  -- notifies contacts
+  Intra.onUserEvent uid (Just conn) (undefined profileUpdated uid uu)
 
 -------------------------------------------------------------------------------
 -- Update Locale
@@ -314,21 +316,23 @@ updateUser uid conn uu = do
 changeLocale :: UserId -> ConnId -> LocaleUpdate -> AppIO ()
 changeLocale uid conn (LocaleUpdate loc) = do
   Data.updateLocale uid loc
-  Intra.onUserEvent uid (Just conn) (localeUpdate uid loc)
+  -- only notifies self
+  Intra.onUserEvent uid (Just conn) (undefined localeUpdate uid loc)
 
 -------------------------------------------------------------------------------
 -- Update ManagedBy
 
-changeManagedBy :: UserId -> ConnId -> ManagedByUpdate -> AppIO ()
-changeManagedBy uid conn (ManagedByUpdate mb) = do
+changeManagedBy :: () -> ConnId -> ManagedByUpdate -> AppIO ()
+changeManagedBy (undefined -> uid) conn (ManagedByUpdate mb) = do
   Data.updateManagedBy uid mb
-  Intra.onUserEvent uid (Just conn) (managedByUpdate uid mb)
+  -- notifies contacts
+  Intra.onUserEvent uid (Just conn) (undefined managedByUpdate uid mb)
 
 --------------------------------------------------------------------------------
 -- Change Handle
 
-changeHandle :: UserId -> ConnId -> Handle -> ExceptT ChangeHandleError AppIO ()
-changeHandle uid conn hdl = do
+changeHandle :: () -> ConnId -> Handle -> ExceptT ChangeHandleError AppIO ()
+changeHandle (undefined -> uid) conn hdl = do
   when (isBlacklistedHandle hdl) $
     throwE ChangeHandleInvalid
   usr <- lift $ Data.lookupUser uid
@@ -342,7 +346,8 @@ changeHandle uid conn hdl = do
       claimed <- lift $ claimHandle u hdl
       unless claimed $
         throwE ChangeHandleExists
-      lift $ Intra.onUserEvent uid (Just conn) (handleUpdated uid hdl)
+      -- notifies contacts
+      lift $ Intra.onUserEvent uid (Just conn) (undefined handleUpdated uid hdl)
 
 --------------------------------------------------------------------------------
 -- Check Handles
@@ -417,7 +422,8 @@ removeEmail uid conn = do
     Just (FullIdentity e _) -> lift $ do
       deleteKey $ userEmailKey e
       Data.deleteEmail uid
-      Intra.onUserEvent uid (Just conn) (emailRemoved uid e)
+      -- notifies self
+      Intra.onUserEvent uid (Just conn) (undefined emailRemoved uid e)
     Just _ -> throwE LastIdentity
     Nothing -> throwE NoIdentity
 
@@ -435,7 +441,8 @@ removePhone uid conn = do
       lift $ do
         deleteKey $ userPhoneKey p
         Data.deletePhone uid
-        Intra.onUserEvent uid (Just conn) (phoneRemoved uid p)
+        -- notifies self
+        Intra.onUserEvent uid (Just conn) (undefined phoneRemoved uid p)
     Just _ -> throwE LastIdentity
     Nothing -> throwE NoIdentity
 
@@ -464,8 +471,10 @@ revokeIdentity key = do
         (\(_ :: Email) -> Data.deleteEmail u)
         (\(_ :: Phone) -> Data.deletePhone u)
         uk
+      -- notifies self
       Intra.onUserEvent u Nothing $
-        foldKey
+        undefined
+          foldKey
           (emailRemoved u)
           (phoneRemoved u)
           uk
@@ -486,7 +495,8 @@ changeAccountStatus usrs status = do
     update :: (UserId -> UserEvent) -> UserId -> AppIO ()
     update ev u = do
       Data.updateStatus u status
-      Intra.onUserEvent u Nothing (ev u)
+      -- notifies nobody
+      Intra.onUserEvent u Nothing (undefined ev u)
 
 suspendAccount :: HasCallStack => List1 UserId -> AppIO ()
 suspendAccount usrs = runExceptT (changeAccountStatus usrs Suspended) >>= \case
@@ -543,13 +553,16 @@ onActivated (AccountActivated account) = do
   let uid = userId (accountUser account)
   Log.debug $ field "user" (toByteString uid) . field "action" (Log.val "User.onActivated")
   Log.info $ field "user" (toByteString uid) . msg (val "User activated")
-  Intra.onUserEvent uid Nothing $ UserActivated account
+  -- notifies self
+  Intra.onUserEvent uid Nothing $ undefined UserActivated account
   return (uid, userIdentity (accountUser account), True)
 onActivated (EmailActivated uid email) = do
-  Intra.onUserEvent uid Nothing (emailUpdated uid email)
+  -- notifies self
+  Intra.onUserEvent uid Nothing (undefined emailUpdated uid email)
   return (uid, Just (EmailIdentity email), False)
 onActivated (PhoneActivated uid phone) = do
-  Intra.onUserEvent uid Nothing (phoneUpdated uid phone)
+  -- notifies self
+  Intra.onUserEvent uid Nothing (undefined phoneUpdated uid phone)
   return (uid, Just (PhoneIdentity phone), False)
 
 -- docs/reference/user/activation.md {#RefActivationRequest}
@@ -722,8 +735,9 @@ mkPasswordResetKey ident = case ident of
 -- the team admin has to delete them via the team console on galley.
 --
 -- TODO: communicate deletions of SSO users to SSO service.
-deleteUser :: UserId -> Maybe PlainTextPassword -> ExceptT DeleteUserError AppIO (Maybe Timeout)
-deleteUser uid pwd = do
+-- user deletion notifies contacts
+deleteUser :: UserId -> () -> ExceptT DeleteUserError AppIO (Maybe Timeout)
+deleteUser uid (undefined -> pwd) = do
   account <- lift $ Data.lookupAccount uid
   case account of
     Nothing -> throwE DeleteUserInvalid
@@ -755,7 +769,7 @@ deleteUser uid pwd = do
       Just emailOrPhone -> sendCode a emailOrPhone
       Nothing -> case pwd of
         Just _ -> throwE DeleteUserMissingPassword
-        Nothing -> lift $ deleteAccount a >> return Nothing
+        Nothing -> lift $ deleteAccount (undefined a) >> return Nothing
     byPassword a pw = do
       Log.info $
         field "user" (toByteString uid)
@@ -766,7 +780,7 @@ deleteUser uid pwd = do
         Just p -> do
           unless (verifyPassword pw p) $
             throwE DeleteUserInvalidPassword
-          lift $ deleteAccount a >> return Nothing
+          lift $ deleteAccount (undefined a) >> return Nothing
     sendCode a target = do
       gen <- Code.mkGen (either Code.ForEmail Code.ForPhone target)
       pending <- lift $ Code.lookup (Code.genKey gen) Code.AccountDeletion
@@ -797,21 +811,22 @@ deleteUser uid pwd = do
 
 -- | Conclude validation and scheduling of user's deletion request that was initiated in
 -- 'deleteUser'.  Called via @post /delete@.
-verifyDeleteUser :: VerifyDeleteUser -> ExceptT DeleteUserError AppIO ()
-verifyDeleteUser d = do
+-- user deletion notifies contacts
+verifyDeleteUser :: () -> ExceptT DeleteUserError AppIO ()
+verifyDeleteUser (undefined -> d) = do
   let key = verifyDeleteUserKey d
   let code = verifyDeleteUserCode d
   c <- lift $ Code.verify key Code.AccountDeletion code
   a <- maybe (throwE DeleteUserInvalidCode) return (Code.codeAccount =<< c)
   account <- lift $ Data.lookupAccount (Id a)
-  for_ account $ lift . deleteAccount
+  for_ account $ lift . deleteAccount . undefined
   lift $ Code.delete key Code.AccountDeletion
 
 -- | Internal deletion without validation.  Called via @delete /i/user/:uid@.  Team users can be
 -- deleted iff the team is not orphaned, i.e. there is at least one user with an email address left
 -- in the team.
-deleteAccount :: UserAccount -> AppIO ()
-deleteAccount account@(accountUser -> user) = do
+deleteAccount :: () -> AppIO ()
+deleteAccount (undefined -> account@(accountUser -> user)) = do
   let uid = userId user
   Log.info $ field "user" (toByteString uid) . msg (val "Deleting account")
   -- Free unique keys
@@ -824,7 +839,8 @@ deleteAccount account@(accountUser -> user) = do
   Data.insertAccount tombstone Nothing Nothing False (SearchableStatus False)
   Intra.rmUser uid (userAssets user)
   Data.lookupClients uid >>= mapM_ (Data.rmClient uid . clientId)
-  Intra.onUserEvent uid Nothing (UserDeleted uid)
+  -- notifies contacts
+  Intra.onUserEvent uid Nothing (undefined UserDeleted uid)
   -- Note: Connections can only be deleted afterwards, since
   --       they need to be notified.
   Data.deleteConnections uid
