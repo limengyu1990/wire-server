@@ -1009,10 +1009,10 @@ listPrekeyIdsH (usr ::: clt ::: _) = json <$> lift (API.lookupPrekeyIds usr clt)
 
 autoConnectH :: JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
 autoConnectH (_ ::: uid ::: conn ::: req) = do
-  json <$> (autoConnect uid conn =<< parseJsonBody req)
+  json <$> (autoConnect uid conn . const () =<< parseJsonBody req)
 
-autoConnect :: UserId -> Maybe ConnId -> UserSet -> Handler [UserConnection]
-autoConnect uid conn (UserSet to) = do
+autoConnect :: UserId -> Maybe ConnId -> () -> Handler [UserConnection]
+autoConnect uid conn (undefined -> UserSet to) = do
   let num = Set.size to
   when (num < 1)
     $ throwStd
@@ -1020,7 +1020,7 @@ autoConnect uid conn (UserSet to) = do
   when (num > 25)
     $ throwStd
     $ badRequest "Too many users given for auto-connect (> 25)."
-  API.autoConnect uid to conn !>> connError
+  API.autoConnect uid (undefined to) conn !>> connError
 
 -- docs/reference/user/registration.md {#RefRegistration}
 createUserH :: JSON ::: JsonRequest NewUserPublic -> Handler Response
@@ -1366,7 +1366,7 @@ getConnectionsStatus ConnectionsStatusRequest {csrFrom, csrTo} flt = do
 createConnectionH :: JSON ::: UserId ::: ConnId ::: JsonRequest ConnectionRequest -> Handler Response
 createConnectionH (_ ::: self ::: conn ::: req) = do
   cr <- parseJsonBody req
-  rs <- API.createConnection self cr conn !>> connError
+  rs <- API.createConnection self (undefined cr) conn !>> connError
   return $ case rs of
     ConnectionCreated c -> setStatus status201 $ json c
     ConnectionExists c -> json c
@@ -1374,7 +1374,7 @@ createConnectionH (_ ::: self ::: conn ::: req) = do
 updateConnectionH :: JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
 updateConnectionH (_ ::: self ::: conn ::: other ::: req) = do
   newStatus <- cuStatus <$> parseJsonBody req
-  mc <- API.updateConnection self other newStatus (Just conn) !>> connError
+  mc <- API.updateConnection self other (undefined newStatus) (Just conn) !>> connError
   return $ case mc of
     Just c -> json c
     Nothing -> setStatus status204 empty

@@ -97,9 +97,9 @@ onConnectionEvent ::
   -- | Client connection ID, if any.
   Maybe ConnId ->
   -- | The event.
-  ConnectionEvent -> -- TODO(event)
+  () ->
   AppIO ()
-onConnectionEvent orig conn evt = do
+onConnectionEvent orig conn (undefined -> evt) = do
   let from = ucFrom (ucConn evt)
   notify
     (singleton $ undefined evt)
