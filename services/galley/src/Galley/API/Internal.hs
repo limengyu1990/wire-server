@@ -33,10 +33,11 @@ import System.Logger.Class
 
 rmUserH :: UserId ::: Maybe ConnId -> Galley Response
 rmUserH (user ::: conn) = do
-  empty <$ rmUser user conn
+  empty <$ rmUser () user conn
 
-rmUser :: UserId -> Maybe ConnId -> Galley ()
-rmUser user conn = do
+-- notifies all members of all conversations
+rmUser :: () -> UserId -> Maybe ConnId -> Galley ()
+rmUser () user conn = do
   let n = unsafeRange 100 :: Range 1 100 Int32
   Data.ResultSet tids <- Data.teamIdsFrom user Nothing (rcast n)
   leaveTeams tids
@@ -66,7 +67,8 @@ rmUser user conn = do
           | isMember (makeIdOpaque user) (Data.convMembers c) -> do
             e <- Data.removeMembers c user (Local <$> u)
             return $
-              (Intra.newPush (evtFrom e) (Intra.ConvEvent e) (Intra.recipient <$> Data.convMembers c))
+              -- notifies members
+              (Intra.newPush (evtFrom e) (Intra.ConvEvent e) (undefined . Intra.recipient <$> Data.convMembers c))
                 <&> set Intra.pushConn conn
                 . set Intra.pushRoute Intra.RouteDirect
           | otherwise -> return Nothing

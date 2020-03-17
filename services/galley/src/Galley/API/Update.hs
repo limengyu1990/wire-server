@@ -80,12 +80,13 @@ import Network.Wai.Utilities
 
 acceptConvH :: UserId ::: Maybe ConnId ::: ConvId -> Galley Response
 acceptConvH (usr ::: conn ::: cnv) = do
-  setStatus status200 . json <$> acceptConv usr conn cnv
+  setStatus status200 . json <$> acceptConv () usr conn cnv
 
-acceptConv :: UserId -> Maybe ConnId -> ConvId -> Galley Conversation
-acceptConv usr conn cnv = do
+-- notifies self and others (assumes One2One)
+acceptConv :: () -> UserId -> Maybe ConnId -> ConvId -> Galley Conversation
+acceptConv () usr conn cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
-  conv' <- acceptOne2One usr conv conn
+  conv' <- acceptOne2One () usr conv conn
   conversationView usr conv'
 
 blockConvH :: UserId ::: ConvId -> Galley Response
@@ -103,15 +104,16 @@ blockConv zusr cnv = do
 
 unblockConvH :: UserId ::: Maybe ConnId ::: ConvId -> Galley Response
 unblockConvH (usr ::: conn ::: cnv) = do
-  setStatus status200 . json <$> unblockConv usr conn cnv
+  setStatus status200 . json <$> unblockConv () usr conn cnv
 
-unblockConv :: UserId -> Maybe ConnId -> ConvId -> Galley Conversation
-unblockConv usr conn cnv = do
+-- notifies self and others (assumes One2One)
+unblockConv :: () -> UserId -> Maybe ConnId -> ConvId -> Galley Conversation
+unblockConv () usr conn cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
   unless (Data.convType conv `elem` [ConnectConv, One2OneConv])
     $ throwM
     $ invalidOp "unblock: invalid conversation type"
-  conv' <- acceptOne2One usr conv conn
+  conv' <- acceptOne2One () usr conv conn
   conversationView usr conv'
 
 -- conversation updates
@@ -128,10 +130,12 @@ handleUpdateResult = \case
 updateConversationAccessH :: UserId ::: ConnId ::: ConvId ::: JsonRequest ConversationAccessUpdate -> Galley Response
 updateConversationAccessH (usr ::: zcon ::: cnv ::: req) = do
   update <- fromJsonBody req
-  handleUpdateResult <$> updateConversationAccess usr zcon cnv update
+  handleUpdateResult <$> updateConversationAccess () usr zcon cnv update
 
-updateConversationAccess :: UserId -> ConnId -> ConvId -> ConversationAccessUpdate -> Galley UpdateResult
-updateConversationAccess usr zcon cnv update = do
+-- notifies members
+-- notifies members, if members get removed
+updateConversationAccess :: () -> UserId -> ConnId -> ConvId -> ConversationAccessUpdate -> Galley UpdateResult
+updateConversationAccess () usr zcon cnv update = do
   let targetAccess = Set.fromList (toList (cupAccess update))
       targetRole = cupAccessRole update
   -- 'PrivateAccessRole' is for self-conversations, 1:1 conversations and
@@ -161,6 +165,7 @@ updateConversationAccess usr zcon cnv update = do
     else
       Updated
         <$> uncheckedUpdateConversationAccess
+          ()
           update
           usr
           zcon
@@ -179,7 +184,9 @@ updateConversationAccess usr zcon cnv update = do
       -- conversation, so the user must have the necessary permission flag
       ensureActionAllowed RemoveConversationMember self
 
+-- notifies members
 uncheckedUpdateConversationAccess ::
+  () ->
   ConversationAccessUpdate ->
   UserId ->
   ConnId ->
@@ -189,7 +196,7 @@ uncheckedUpdateConversationAccess ::
   [Member] ->
   [BotMember] ->
   Galley Event
-uncheckedUpdateConversationAccess body usr zcon conv (currentAccess, targetAccess) (currentRole, targetRole) users bots = do
+uncheckedUpdateConversationAccess () body usr zcon conv (currentAccess, targetAccess) (currentRole, targetRole) users bots = do
   let cnv = convId conv
   -- Remove conversation codes if CodeAccess is revoked
   when (CodeAccess `elem` currentAccess && CodeAccess `notElem` targetAccess) $ do
@@ -218,7 +225,8 @@ uncheckedUpdateConversationAccess body usr zcon conv (currentAccess, targetAcces
   now <- liftIO getCurrentTime
   let accessEvent = Event ConvAccessUpdate cnv usr now (Just $ EdConvAccessUpdate body)
   Data.updateConversationAccess cnv targetAccess targetRole
-  pushEvent accessEvent users bots zcon
+  -- notifies members
+  pushEvent () accessEvent users bots zcon
   -- Remove users and bots
   let removedUsers = map memId users \\ map memId newUsers
       removedBots = map botMemId bots \\ map botMemId newBots
@@ -229,7 +237,8 @@ uncheckedUpdateConversationAccess body usr zcon conv (currentAccess, targetAcces
       e <- Data.removeMembers conv usr (Local <$> list1 x xs)
       -- push event to all clients, including zconn
       -- since updateConversationAccess generates a second (member removal) event here
-      for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> users)) $ \p -> push1 p
+      -- notifies members
+      for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> users)) $ \p -> push1 p
       void . forkIO $ void $ External.deliver (newBots `zip` repeat e)
   -- Return the event
   pure accessEvent
@@ -242,10 +251,11 @@ uncheckedUpdateConversationAccess body usr zcon conv (currentAccess, targetAcces
 updateConversationReceiptModeH :: UserId ::: ConnId ::: ConvId ::: JsonRequest ConversationReceiptModeUpdate ::: JSON -> Galley Response
 updateConversationReceiptModeH (usr ::: zcon ::: cnv ::: req ::: _) = do
   update <- fromJsonBody req
-  handleUpdateResult <$> updateConversationReceiptMode usr zcon cnv update
+  handleUpdateResult <$> updateConversationReceiptMode () usr zcon cnv update
 
-updateConversationReceiptMode :: UserId -> ConnId -> ConvId -> ConversationReceiptModeUpdate -> Galley UpdateResult
-updateConversationReceiptMode usr zcon cnv receiptModeUpdate@(ConversationReceiptModeUpdate target) = do
+-- notifies members
+updateConversationReceiptMode :: () -> UserId -> ConnId -> ConvId -> ConversationReceiptModeUpdate -> Galley UpdateResult
+updateConversationReceiptMode () usr zcon cnv receiptModeUpdate@(ConversationReceiptModeUpdate target) = do
   (bots, users) <- botsAndUsers <$> Data.members cnv
   ensureActionAllowed ModifyConversationReceiptMode =<< getSelfMember usr users
   current <- Data.lookupReceiptMode cnv
@@ -258,16 +268,18 @@ updateConversationReceiptMode usr zcon cnv receiptModeUpdate@(ConversationReceip
       Data.updateConversationReceiptMode cnv target
       now <- liftIO getCurrentTime
       let receiptEvent = Event ConvReceiptModeUpdate cnv usr now (Just $ EdConvReceiptModeUpdate receiptModeUpdate)
-      pushEvent receiptEvent users bots zcon
+      -- notifies members
+      pushEvent () receiptEvent users bots zcon
       pure receiptEvent
 
 updateConversationMessageTimerH :: UserId ::: ConnId ::: ConvId ::: JsonRequest ConversationMessageTimerUpdate -> Galley Response
 updateConversationMessageTimerH (usr ::: zcon ::: cnv ::: req) = do
   timerUpdate <- fromJsonBody req
-  handleUpdateResult <$> updateConversationMessageTimer usr zcon cnv timerUpdate
+  handleUpdateResult <$> updateConversationMessageTimer () usr zcon cnv timerUpdate
 
-updateConversationMessageTimer :: UserId -> ConnId -> ConvId -> ConversationMessageTimerUpdate -> Galley UpdateResult
-updateConversationMessageTimer usr zcon cnv timerUpdate@(ConversationMessageTimerUpdate target) = do
+-- notifies members
+updateConversationMessageTimer :: () -> UserId -> ConnId -> ConvId -> ConversationMessageTimerUpdate -> Galley UpdateResult
+updateConversationMessageTimer () usr zcon cnv timerUpdate@(ConversationMessageTimerUpdate target) = do
   -- checks and balances
   (bots, users) <- botsAndUsers <$> Data.members cnv
   ensureActionAllowed ModifyConversationMessageTimer =<< getSelfMember usr users
@@ -283,18 +295,21 @@ updateConversationMessageTimer usr zcon cnv timerUpdate@(ConversationMessageTime
       now <- liftIO getCurrentTime
       let timerEvent = Event ConvMessageTimerUpdate cnv usr now (Just $ EdConvMessageTimerUpdate timerUpdate)
       Data.updateConversationMessageTimer cnv target
-      pushEvent timerEvent users bots zcon
+      -- notifies members
+      pushEvent () timerEvent users bots zcon
       pure timerEvent
 
-pushEvent :: Event -> [Member] -> [BotMember] -> ConnId -> Galley ()
-pushEvent e users bots zcon = do
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> users)) $ \p ->
+-- notifies members listed
+pushEvent :: () -> Event -> [Member] -> [BotMember] -> ConnId -> Galley ()
+pushEvent () e users bots zcon = do
+  -- notifies members listed
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> users)) $ \p ->
     push1 $ p & pushConn ?~ zcon
   void . forkIO $ void $ External.deliver (bots `zip` repeat e)
 
 addCodeH :: UserId ::: ConnId ::: ConvId -> Galley Response
 addCodeH (usr ::: zcon ::: cnv) = do
-  addCode usr zcon cnv <&> \case
+  addCode () usr zcon cnv <&> \case
     CodeAdded event -> json event & setStatus status201
     CodeAlreadyExisted conversationCode -> json conversationCode & setStatus status200
 
@@ -302,8 +317,9 @@ data AddCodeResult
   = CodeAdded Event
   | CodeAlreadyExisted ConversationCode
 
-addCode :: UserId -> ConnId -> ConvId -> Galley AddCodeResult
-addCode usr zcon cnv = do
+-- notifies members, if code didn't exist before
+addCode :: () -> UserId -> ConnId -> ConvId -> Galley AddCodeResult
+addCode () usr zcon cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
   ensureConvMember (Data.convMembers conv) usr
   ensureAccess conv CodeAccess
@@ -317,7 +333,8 @@ addCode usr zcon cnv = do
       now <- liftIO getCurrentTime
       conversationCode <- createCode code
       let event = Event ConvCodeUpdate cnv usr now (Just $ EdConvCodeUpdate conversationCode)
-      pushEvent event users bots zcon
+      -- notifies members
+      pushEvent () event users bots zcon
       pure $ CodeAdded event
     Just code -> do
       conversationCode <- createCode code
@@ -330,10 +347,10 @@ addCode usr zcon cnv = do
 
 rmCodeH :: UserId ::: ConnId ::: ConvId -> Galley Response
 rmCodeH (usr ::: zcon ::: cnv) = do
-  setStatus status200 . json <$> rmCode usr zcon cnv
+  setStatus status200 . json <$> rmCode () usr zcon cnv
 
-rmCode :: UserId -> ConnId -> ConvId -> Galley Event
-rmCode usr zcon cnv = do
+rmCode :: () -> UserId -> ConnId -> ConvId -> Galley Event
+rmCode () usr zcon cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
   ensureConvMember (Data.convMembers conv) usr
   ensureAccess conv CodeAccess
@@ -342,7 +359,7 @@ rmCode usr zcon cnv = do
   Data.deleteCode key ReusableCode
   now <- liftIO getCurrentTime
   let event = Event ConvCodeDelete cnv usr now Nothing
-  pushEvent event users bots zcon
+  pushEvent () event users bots zcon
   pure event
 
 getCodeH :: UserId ::: ConvId -> Galley Response
@@ -383,23 +400,26 @@ verifyReusableCode convCode = do
 joinConversationByReusableCodeH :: UserId ::: ConnId ::: JsonRequest ConversationCode -> Galley Response
 joinConversationByReusableCodeH (zusr ::: zcon ::: req) = do
   convCode <- fromJsonBody req
-  handleUpdateResult <$> joinConversationByReusableCode zusr zcon convCode
+  handleUpdateResult <$> joinConversationByReusableCode () zusr zcon convCode
 
-joinConversationByReusableCode :: UserId -> ConnId -> ConversationCode -> Galley UpdateResult
-joinConversationByReusableCode zusr zcon convCode = do
+-- notifies members
+joinConversationByReusableCode :: () -> UserId -> ConnId -> ConversationCode -> Galley UpdateResult
+joinConversationByReusableCode () zusr zcon convCode = do
   c <- verifyReusableCode convCode
-  joinConversation zusr zcon (codeConversation c) CodeAccess
+  joinConversation () zusr zcon (codeConversation c) CodeAccess
 
 joinConversationByIdH :: UserId ::: ConnId ::: ConvId ::: JSON -> Galley Response
 joinConversationByIdH (zusr ::: zcon ::: cnv ::: _) =
-  handleUpdateResult <$> joinConversationById zusr zcon cnv
+  handleUpdateResult <$> joinConversationById () zusr zcon cnv
 
-joinConversationById :: UserId -> ConnId -> ConvId -> Galley UpdateResult
-joinConversationById zusr zcon cnv =
-  joinConversation zusr zcon cnv LinkAccess
+-- notifies members
+joinConversationById :: () -> UserId -> ConnId -> ConvId -> Galley UpdateResult
+joinConversationById () zusr zcon cnv =
+  joinConversation () zusr zcon cnv LinkAccess
 
-joinConversation :: UserId -> ConnId -> ConvId -> Access -> Galley UpdateResult
-joinConversation zusr zcon cnv access = do
+-- notifies members
+joinConversation :: () -> UserId -> ConnId -> ConvId -> Access -> Galley UpdateResult
+joinConversation () zusr zcon cnv access = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
   ensureAccess conv access
   zusrMembership <- maybe (pure Nothing) (`Data.teamMember` zusr) (Data.convTeam conv)
@@ -409,15 +429,18 @@ joinConversation zusr zcon cnv access = do
   -- NOTE: When joining conversations, all users become members
   -- as this is our desired behavior for these types of conversations
   -- where there is no way to control who joins, etc.
-  addToConversation (botsAndUsers (Data.convMembers conv)) (zusr, roleNameWireMember) zcon ((,roleNameWireMember) <$> newUsers) conv
+  --
+  -- notifies members
+  addToConversation () (botsAndUsers (Data.convMembers conv)) (zusr, roleNameWireMember) zcon ((,roleNameWireMember) <$> newUsers) conv
 
 addMembersH :: UserId ::: ConnId ::: OpaqueConvId ::: JsonRequest Invite -> Galley Response
 addMembersH (zusr ::: zcon ::: cid ::: req) = do
   invite <- fromJsonBody req
-  handleUpdateResult <$> addMembers zusr zcon cid invite
+  handleUpdateResult <$> addMembers () zusr zcon cid invite
 
-addMembers :: UserId -> ConnId -> OpaqueConvId -> Invite -> Galley UpdateResult
-addMembers zusr zcon cid invite = do
+-- notifies members
+addMembers :: () -> UserId -> ConnId -> OpaqueConvId -> Invite -> Galley UpdateResult
+addMembers () zusr zcon cid invite = do
   resolveOpaqueConvId cid >>= \case
     Mapped idMapping ->
       -- FUTUREWORK(federation): if the conversation is on another backend, send request there.
@@ -449,7 +472,8 @@ addMembers zusr zcon cid invite = do
           ensureAccessRole (Data.convAccessRole conv) (zip newUsers $ repeat Nothing)
           ensureConnectedOrSameTeam zusr newUsers
         Just ti -> teamConvChecks ti newUsers convId conv
-      addToConversation mems (zusr, memConvRoleName self) zcon ((,invRoleName invite) <$> newUsers) conv
+      -- notifies members
+      addToConversation () mems (zusr, memConvRoleName self) zcon ((,invRoleName invite) <$> newUsers) conv
     userIsMember u = (^. userId . to (== u))
     teamConvChecks tid newUsers convId conv = do
       tms <- Data.teamMembersLimited tid newUsers
@@ -463,40 +487,44 @@ addMembers zusr zcon cid invite = do
 updateSelfMemberH :: UserId ::: ConnId ::: ConvId ::: JsonRequest MemberUpdate -> Galley Response
 updateSelfMemberH (zusr ::: zcon ::: cid ::: req) = do
   update <- fromJsonBody req
-  updateSelfMember zusr zcon cid update
+  updateSelfMember () zusr zcon cid update
   return empty
 
-updateSelfMember :: UserId -> ConnId -> ConvId -> MemberUpdate -> Galley ()
-updateSelfMember zusr zcon cid update = do
+updateSelfMember :: () -> UserId -> ConnId -> ConvId -> MemberUpdate -> Galley ()
+updateSelfMember () zusr zcon cid update = do
   conv <- getConversationAndCheckMembership zusr (Local cid)
   m <- getSelfMember zusr (Data.convMembers conv)
   -- Ensure no self role upgrades
   for_ (mupConvRoleName update) $ ensureConvRoleNotElevated m
-  void $ processUpdateMemberEvent zusr zcon cid [m] m update
+  -- notifies self
+  void $ processUpdateMemberEvent () zusr zcon cid [m] m update
 
 updateOtherMemberH :: UserId ::: ConnId ::: ConvId ::: UserId ::: JsonRequest OtherMemberUpdate -> Galley Response
 updateOtherMemberH (zusr ::: zcon ::: cid ::: victim ::: req) = do
   update <- fromJsonBody req
-  updateOtherMember zusr zcon cid victim update
+  updateOtherMember () zusr zcon cid victim update
   return empty
 
-updateOtherMember :: UserId -> ConnId -> ConvId -> UserId -> OtherMemberUpdate -> Galley ()
-updateOtherMember zusr zcon cid victim update = do
+-- notifies members
+updateOtherMember :: () -> UserId -> ConnId -> ConvId -> UserId -> OtherMemberUpdate -> Galley ()
+updateOtherMember () zusr zcon cid victim update = do
   when (zusr == victim) $
     throwM invalidTargetUserOp
   conv <- getConversationAndCheckMembership zusr (Local cid)
   let (bots, users) = botsAndUsers (Data.convMembers conv)
   ensureActionAllowed ModifyOtherConversationMember =<< getSelfMember zusr users
   memTarget <- getOtherMember victim users
-  e <- processUpdateMemberEvent zusr zcon cid users memTarget (memberUpdate {mupConvRoleName = omuConvRoleName update})
+  -- notifies members
+  e <- processUpdateMemberEvent () zusr zcon cid users memTarget (memberUpdate {mupConvRoleName = omuConvRoleName update})
   void . forkIO $ void $ External.deliver (bots `zip` repeat e)
 
 removeMemberH :: UserId ::: ConnId ::: OpaqueConvId ::: OpaqueUserId -> Galley Response
 removeMemberH (zusr ::: zcon ::: cid ::: victim) = do
-  handleUpdateResult <$> removeMember zusr zcon cid victim
+  handleUpdateResult <$> removeMember () zusr zcon cid victim
 
-removeMember :: UserId -> ConnId -> OpaqueConvId -> OpaqueUserId -> Galley UpdateResult
-removeMember zusr zcon cid victim = do
+-- notifies members
+removeMember :: () -> UserId -> ConnId -> OpaqueConvId -> OpaqueUserId -> Galley UpdateResult
+removeMember () zusr zcon cid victim = do
   resolveOpaqueConvId cid >>= \case
     Mapped idMapping -> throwM . federationNotImplemented $ pure idMapping
     Local localConvId -> removeMemberOfLocalConversation localConvId
@@ -517,7 +545,8 @@ removeMember zusr zcon cid victim = do
             Mapped _ -> do
               -- FUTUREWORK(federation): users can be on other backend, how to notify it?
               pure ()
-          for_ (newPush (evtFrom event) (ConvEvent event) (recipient <$> users)) $ \p ->
+          -- notifies members
+          for_ (newPush (evtFrom event) (ConvEvent event) (undefined . recipient <$> users)) $ \p ->
             push1 $ p & pushConn ?~ zcon
           void . forkIO $ void $ External.deliver (bots `zip` repeat event)
           pure $ Updated event
@@ -546,25 +575,27 @@ handleOtrResult = \case
 postBotMessageH :: BotId ::: ConvId ::: OtrFilterMissing ::: JsonRequest NewOtrMessage ::: JSON -> Galley Response
 postBotMessageH (zbot ::: zcnv ::: val ::: req ::: _) = do
   message <- fromJsonBody req
-  handleOtrResult <$> postBotMessage zbot zcnv val message
+  handleOtrResult <$> postBotMessage () zbot zcnv val message
 
-postBotMessage :: BotId -> ConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
-postBotMessage zbot zcnv val message = do
-  postNewOtrMessage (botUserId zbot) Nothing (makeIdOpaque zcnv) val message
+-- notifies recipients
+postBotMessage :: () -> BotId -> ConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
+postBotMessage () zbot zcnv val message = do
+  postNewOtrMessage () (botUserId zbot) Nothing (makeIdOpaque zcnv) val message
 
 postProtoOtrMessageH :: UserId ::: ConnId ::: OpaqueConvId ::: OtrFilterMissing ::: Request ::: Media "application" "x-protobuf" -> Galley Response
 postProtoOtrMessageH (zusr ::: zcon ::: cnv ::: val ::: req ::: _) = do
   message <- Proto.toNewOtrMessage <$> fromProtoBody req
-  handleOtrResult <$> postOtrMessage zusr zcon cnv val message
+  handleOtrResult <$> postOtrMessage () zusr zcon cnv val message
 
 postOtrMessageH :: UserId ::: ConnId ::: OpaqueConvId ::: OtrFilterMissing ::: JsonRequest NewOtrMessage -> Galley Response
 postOtrMessageH (zusr ::: zcon ::: cnv ::: val ::: req) = do
   message <- fromJsonBody req
-  handleOtrResult <$> postOtrMessage zusr zcon cnv val message
+  handleOtrResult <$> postOtrMessage () zusr zcon cnv val message
 
-postOtrMessage :: UserId -> ConnId -> OpaqueConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
-postOtrMessage zusr zcon cnv val message =
-  postNewOtrMessage zusr (Just zcon) cnv val message
+-- notifies recipients
+postOtrMessage :: () -> UserId -> ConnId -> OpaqueConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
+postOtrMessage () zusr zcon cnv val message =
+  postNewOtrMessage () zusr (Just zcon) cnv val message
 
 postProtoOtrBroadcastH :: UserId ::: ConnId ::: OtrFilterMissing ::: Request ::: JSON -> Galley Response
 postProtoOtrBroadcastH (zusr ::: zcon ::: val ::: req ::: _) = do
@@ -589,11 +620,12 @@ postNewOtrBroadcast usr con val msg = do
   let recvrs = newOtrRecipients msg
   now <- liftIO getCurrentTime
   withValidOtrBroadcastRecipients usr sender recvrs val now $ \rs -> do
-    let (_, toUsers) = foldr (newMessage usr con Nothing msg now) ([], []) rs
+    let (_, toUsers) = foldr (newMessage () usr con Nothing msg now) ([], []) rs
     pushSome (catMaybes toUsers)
 
-postNewOtrMessage :: UserId -> Maybe ConnId -> OpaqueConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
-postNewOtrMessage usr con cnv val msg = do
+-- notifies recipients
+postNewOtrMessage :: () -> UserId -> Maybe ConnId -> OpaqueConvId -> OtrFilterMissing -> NewOtrMessage -> Galley OtrResult
+postNewOtrMessage () usr con cnv val msg = do
   resolveOpaqueConvId cnv >>= \case
     Mapped idMapping ->
       -- FUTUREWORK(federation): forward message to backend owning the conversation
@@ -606,13 +638,16 @@ postNewOtrMessage usr con cnv val msg = do
       let recvrs = newOtrRecipients msg
       now <- liftIO getCurrentTime
       withValidOtrRecipients usr sender localConvId recvrs val now $ \rs -> do
-        let (toBots, toUsers) = foldr (newMessage usr con (Just localConvId) msg now) ([], []) rs
+        -- notifies recipients
+        let (toBots, toUsers) = foldr (newMessage () usr con (Just localConvId) msg now) ([], []) rs
         pushSome (catMaybes toUsers)
         void . forkIO $ do
           gone <- External.deliver toBots
           mapM_ (deleteBot localConvId . botMemId) gone
 
+-- notifies the member
 newMessage ::
+  () ->
   UserId ->
   Maybe ConnId ->
   -- | Conversation Id (if Nothing, recipient's self conversation is used)
@@ -622,7 +657,7 @@ newMessage ::
   (Member, ClientId, Text) ->
   ([(BotMember, Event)], [Maybe Push]) ->
   ([(BotMember, Event)], [Maybe Push])
-newMessage usr con cnv msg now (m, c, t) ~(toBots, toUsers) =
+newMessage () usr con cnv msg now (m, c, t) ~(toBots, toUsers) =
   let o =
         OtrMessage
           { otrSender = newOtrSender msg,
@@ -637,7 +672,7 @@ newMessage usr con cnv msg now (m, c, t) ~(toBots, toUsers) =
         Just b -> ((b, e) : toBots, toUsers)
         Nothing ->
           let p =
-                newPush (evtFrom e) (ConvEvent e) [r]
+                newPush (evtFrom e) (ConvEvent e) [undefined r]
                   <&> set pushConn con
                   . set pushNativePriority (newOtrNativePriority msg)
                   . set pushRoute (bool RouteDirect RouteAny (newOtrNativePush msg))
@@ -647,15 +682,16 @@ newMessage usr con cnv msg now (m, c, t) ~(toBots, toUsers) =
 updateConversationDeprecatedH :: UserId ::: ConnId ::: ConvId ::: JsonRequest ConversationRename -> Galley Response
 updateConversationDeprecatedH (zusr ::: zcon ::: cnv ::: req) = do
   convRename <- fromJsonBody req
-  setStatus status200 . json <$> updateConversationName zusr zcon cnv convRename
+  setStatus status200 . json <$> updateConversationName () zusr zcon cnv convRename
 
 updateConversationNameH :: UserId ::: ConnId ::: ConvId ::: JsonRequest ConversationRename -> Galley Response
 updateConversationNameH (zusr ::: zcon ::: cnv ::: req) = do
   convRename <- fromJsonBody req
-  setStatus status200 . json <$> updateConversationName zusr zcon cnv convRename
+  setStatus status200 . json <$> updateConversationName () zusr zcon cnv convRename
 
-updateConversationName :: UserId -> ConnId -> ConvId -> ConversationRename -> Galley Event
-updateConversationName zusr zcon cnv convRename = do
+-- notifies members
+updateConversationName :: () -> UserId -> ConnId -> ConvId -> ConversationRename -> Galley Event
+updateConversationName () zusr zcon cnv convRename = do
   alive <- Data.isConvAlive cnv
   unless alive $ do
     Data.deleteConversation cnv
@@ -666,7 +702,8 @@ updateConversationName zusr zcon cnv convRename = do
   cn <- rangeChecked (cupName convRename)
   Data.updateConversation cnv cn
   let e = Event ConvRename cnv zusr now (Just $ EdConvRename convRename)
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> users)) $ \p ->
+  -- notifies members
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> users)) $ \p ->
     push1 $ p & pushConn ?~ zcon
   void . forkIO $ void $ External.deliver (bots `zip` repeat e)
   return e
@@ -674,17 +711,19 @@ updateConversationName zusr zcon cnv convRename = do
 isTypingH :: UserId ::: ConnId ::: ConvId ::: JsonRequest TypingData -> Galley Response
 isTypingH (zusr ::: zcon ::: cnv ::: req) = do
   typingData <- fromJsonBody req
-  isTyping zusr zcon cnv typingData
+  isTyping () zusr zcon cnv typingData
   pure empty
 
-isTyping :: UserId -> ConnId -> ConvId -> TypingData -> Galley ()
-isTyping zusr zcon cnv typingData = do
+-- notifies members
+isTyping :: () -> UserId -> ConnId -> ConvId -> TypingData -> Galley ()
+isTyping () zusr zcon cnv typingData = do
   mm <- Data.members cnv
   unless (makeIdOpaque zusr `isMember` mm) $
     throwM convNotFound
   now <- liftIO getCurrentTime
   let e = Event Typing cnv zusr now (Just $ EdTyping typingData)
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> mm)) $ \p ->
+  -- notifies members
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> mm)) $ \p ->
     push1 $
       p
         & pushConn ?~ zcon
@@ -704,10 +743,11 @@ rmServiceH req = do
 addBotH :: UserId ::: ConnId ::: JsonRequest AddBot -> Galley Response
 addBotH (zusr ::: zcon ::: req) = do
   bot <- fromJsonBody req
-  json <$> addBot zusr zcon bot
+  json <$> addBot () zusr zcon bot
 
-addBot :: UserId -> ConnId -> AddBot -> Galley Event
-addBot zusr zcon b = do
+-- notifies members
+addBot :: () -> UserId -> ConnId -> AddBot -> Galley Event
+addBot () zusr zcon b = do
   c <- Data.conversation (b ^. addBotConv) >>= ifNothing convNotFound
   -- Check some preconditions on adding bots to a conversation
   for_ (Data.convTeam c) $ teamConvChecks (b ^. addBotConv)
@@ -715,7 +755,8 @@ addBot zusr zcon b = do
   t <- liftIO getCurrentTime
   Data.updateClient True (botUserId (b ^. addBotId)) (b ^. addBotClient)
   (e, bm) <- Data.addBotMember zusr (b ^. addBotService) (b ^. addBotId) (b ^. addBotConv) t
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> users)) $ \p ->
+  -- notifies members
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> users)) $ \p ->
     push1 $ p & pushConn ?~ zcon
   void . forkIO $ void $ External.deliver ((bm : bots) `zip` repeat e)
   pure e
@@ -737,10 +778,11 @@ addBot zusr zcon b = do
 rmBotH :: UserId ::: Maybe ConnId ::: JsonRequest RemoveBot -> Galley Response
 rmBotH (zusr ::: zcon ::: req) = do
   bot <- fromJsonBody req
-  handleUpdateResult <$> rmBot zusr zcon bot
+  handleUpdateResult <$> rmBot () zusr zcon bot
 
-rmBot :: UserId -> Maybe ConnId -> RemoveBot -> Galley UpdateResult
-rmBot zusr zcon b = do
+-- notifies members
+rmBot :: () -> UserId -> Maybe ConnId -> RemoveBot -> Galley UpdateResult
+rmBot () zusr zcon b = do
   c <- Data.conversation (b ^. rmBotConv) >>= ifNothing convNotFound
   unless (makeIdOpaque zusr `isMember` Data.convMembers c) $
     throwM convNotFound
@@ -751,7 +793,8 @@ rmBot zusr zcon b = do
       t <- liftIO getCurrentTime
       let evd = Just (EdMembersLeave (UserIdList [botUserId (b ^. rmBotId)]))
       let e = Event MemberLeave (Data.convId c) zusr t evd
-      for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> users)) $ \p ->
+      -- notifies members
+      for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> users)) $ \p ->
         push1 $ p & pushConn .~ zcon
       Data.removeMember (botUserId (b ^. rmBotId)) (Data.convId c)
       Data.eraseClients (botUserId (b ^. rmBotId))
@@ -761,18 +804,21 @@ rmBot zusr zcon b = do
 -------------------------------------------------------------------------------
 -- Helpers
 
-addToConversation :: ([BotMember], [Member]) -> (UserId, RoleName) -> ConnId -> [(UserId, RoleName)] -> Data.Conversation -> Galley UpdateResult
-addToConversation _ _ _ [] _ = pure Unchanged
-addToConversation (bots, others) (usr, usrRole) conn xs c = do
+-- notifies members
+addToConversation :: () -> ([BotMember], [Member]) -> (UserId, RoleName) -> ConnId -> [(UserId, RoleName)] -> Data.Conversation -> Galley UpdateResult
+addToConversation () _ _ _ [] _ = pure Unchanged
+addToConversation () (bots, others) (usr, usrRole) conn xs c = do
   ensureGroupConv c
   mems <- checkedMemberAddSize xs
   now <- liftIO getCurrentTime
   (e, mm) <- Data.addMembersWithRole now (Data.convId c) (usr, usrRole) mems
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> allMembers (toList mm))) $ \p ->
+  -- notifies members
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> allMembers (toList mm))) $ \p ->
     push1 $ p & pushConn ?~ conn
   void . forkIO $ void $ External.deliver (bots `zip` repeat e)
   pure $ Updated e
   where
+    -- TODO: simplify to use `nub (new <> others)`
     allMembers new = foldl' fn new others
       where
         fn acc m
@@ -818,7 +864,9 @@ applyMemUpdateChanges m u =
       memConvRoleName = fromMaybe (memConvRoleName m) (misConvRoleName u)
     }
 
+-- notifies members
 processUpdateMemberEvent ::
+  () ->
   UserId ->
   ConnId ->
   ConvId ->
@@ -826,12 +874,13 @@ processUpdateMemberEvent ::
   Member ->
   MemberUpdate ->
   Galley Event
-processUpdateMemberEvent zusr zcon cid users target update = do
+processUpdateMemberEvent () zusr zcon cid users target update = do
   up <- Data.updateMember cid (memId target) update
   now <- liftIO getCurrentTime
   let e = Event MemberStateUpdate cid zusr now (Just $ EdMemberUpdate up)
   let ms = applyMemUpdateChanges target up
-  for_ (newPush (evtFrom e) (ConvEvent e) (recipient ms : fmap recipient (delete target users))) $ \p ->
+  -- notifies members
+  for_ (newPush (evtFrom e) (ConvEvent e) (undefined <$> recipient ms : fmap recipient (delete target users))) $ \p ->
     push1 $
       p
         & pushConn ?~ zcon

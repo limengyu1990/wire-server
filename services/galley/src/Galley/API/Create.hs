@@ -41,30 +41,33 @@ import Network.Wai.Utilities
 createGroupConversationH :: UserId ::: ConnId ::: JsonRequest NewConvUnmanaged -> Galley Response
 createGroupConversationH (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req
-  handleConversationResponse <$> createGroupConversation zusr zcon newConv
+  handleConversationResponse <$> createGroupConversation () zusr zcon newConv
 
-createGroupConversation :: UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
-createGroupConversation zusr zcon wrapped@(NewConvUnmanaged body) = do
+-- notifies members
+createGroupConversation :: () -> UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
+createGroupConversation () zusr zcon wrapped@(NewConvUnmanaged body) = do
   case newConvTeam body of
-    Nothing -> createRegularGroupConv zusr zcon wrapped
-    Just tinfo -> createTeamGroupConv zusr zcon tinfo body
+    Nothing -> createRegularGroupConv () zusr zcon wrapped
+    Just tinfo -> createTeamGroupConv () zusr zcon tinfo body
 
 -- | An internal endpoint for creating managed group conversations. Will
 -- throw an error for everything else.
 internalCreateManagedConversationH :: UserId ::: ConnId ::: JsonRequest NewConvManaged -> Galley Response
 internalCreateManagedConversationH (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req
-  handleConversationResponse <$> internalCreateManagedConversation zusr zcon newConv
+  handleConversationResponse <$> internalCreateManagedConversation () zusr zcon newConv
 
-internalCreateManagedConversation :: UserId -> ConnId -> NewConvManaged -> Galley ConversationResponse
-internalCreateManagedConversation zusr zcon (NewConvManaged body) = do
+-- notifies members
+internalCreateManagedConversation :: () -> UserId -> ConnId -> NewConvManaged -> Galley ConversationResponse
+internalCreateManagedConversation () zusr zcon (NewConvManaged body) = do
   case newConvTeam body of
     Nothing -> throwM internalError
-    Just tinfo -> createTeamGroupConv zusr zcon tinfo body
+    Just tinfo -> createTeamGroupConv () zusr zcon tinfo body
 
 -- | A helper for creating a regular (non-team) group conversation.
-createRegularGroupConv :: UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
-createRegularGroupConv zusr zcon (NewConvUnmanaged body) = do
+-- notifies members
+createRegularGroupConv :: () -> UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
+createRegularGroupConv () zusr zcon (NewConvUnmanaged body) = do
   name <- rangeCheckedMaybe (newConvName body)
   _uids <- checkedConvSize (newConvUsers body) -- currently not needed, as we only consider local IDs
   mappedOrLocalUserIds <- traverse resolveOpaqueUserId (newConvUsers body)
@@ -85,13 +88,15 @@ createRegularGroupConv zusr zcon (NewConvUnmanaged body) = do
       (newConvMessageTimer body)
       (newConvReceiptMode body)
       (newConvUsersRole body)
-  notifyCreatedConversation Nothing zusr (Just zcon) c
+  -- notifies members
+  notifyCreatedConversation () Nothing zusr (Just zcon) c
   conversationCreated zusr c
 
 -- | A helper for creating a team group conversation, used by the endpoint
 -- handlers above. Allows both unmanaged and managed conversations.
-createTeamGroupConv :: UserId -> ConnId -> ConvTeamInfo -> NewConv -> Galley ConversationResponse
-createTeamGroupConv zusr zcon tinfo body = do
+-- notifies members
+createTeamGroupConv :: () -> UserId -> ConnId -> ConvTeamInfo -> NewConv -> Galley ConversationResponse
+createTeamGroupConv () zusr zcon tinfo body = do
   (localUserIds, remoteUserIds) <-
     partitionMappedOrLocalIds <$> traverse resolveOpaqueUserId (newConvUsers body)
   -- for now, teams don't support conversations with remote members
@@ -130,7 +135,8 @@ createTeamGroupConv zusr zcon tinfo body = do
   conv <- Data.createConversation zusr name (access body) (accessRole body) otherConvMems (newConvTeam body) (newConvMessageTimer body) (newConvReceiptMode body) (newConvUsersRole body)
   now <- liftIO getCurrentTime
   -- NOTE: We only send (conversation) events to members of the conversation
-  notifyCreatedConversation (Just now) zusr (Just zcon) conv
+  -- notifies members
+  notifyCreatedConversation () (Just now) zusr (Just zcon) conv
   conversationCreated zusr conv
 
 ----------------------------------------------------------------------------
@@ -152,10 +158,11 @@ createSelfConversation zusr = do
 createOne2OneConversationH :: UserId ::: ConnId ::: JsonRequest NewConvUnmanaged -> Galley Response
 createOne2OneConversationH (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req
-  handleConversationResponse <$> createOne2OneConversation zusr zcon newConv
+  handleConversationResponse <$> createOne2OneConversation () zusr zcon newConv
 
-createOne2OneConversation :: UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
-createOne2OneConversation zusr zcon (NewConvUnmanaged j) = do
+-- notifies members
+createOne2OneConversation :: () -> UserId -> ConnId -> NewConvUnmanaged -> Galley ConversationResponse
+createOne2OneConversation () zusr zcon (NewConvUnmanaged j) = do
   other <- head . fromRange <$> (rangeChecked (newConvUsers j) :: Galley (Range 1 1 [OpaqueUserId]))
   (x, y) <- toUUIDs (makeIdOpaque zusr) other
   when (x == y)
@@ -189,16 +196,17 @@ createOne2OneConversation zusr zcon (NewConvUnmanaged j) = do
         Nothing -> throwM teamNotFound
     create x y n tinfo = do
       c <- Data.createOne2OneConversation x y n (cnvTeamId <$> tinfo)
-      notifyCreatedConversation Nothing zusr (Just zcon) c
+      notifyCreatedConversation () Nothing zusr (Just zcon) c
       conversationCreated zusr c
 
 createConnectConversationH :: UserId ::: Maybe ConnId ::: JsonRequest Connect -> Galley Response
 createConnectConversationH (usr ::: conn ::: req) = do
   j <- fromJsonBody req
-  handleConversationResponse <$> createConnectConversation usr conn j
+  handleConversationResponse <$> createConnectConversation () usr conn j
 
-createConnectConversation :: UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
-createConnectConversation usr conn j = do
+-- notifies self (and other, if they already created the connect conversation)
+createConnectConversation :: () -> UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
+createConnectConversation () usr conn j = do
   (x, y) <- toUUIDs (makeIdOpaque usr) (makeIdOpaque (cRecipient j))
   n <- rangeCheckedMaybe (cName j)
   conv <- Data.conversation (Data.one2OneConvId x y)
@@ -206,8 +214,10 @@ createConnectConversation usr conn j = do
   where
     create x y n = do
       (c, e) <- Data.createConnectConversation x y n j
-      notifyCreatedConversation Nothing usr conn c
-      for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> Data.convMembers c)) $ \p ->
+      -- notifies self
+      notifyCreatedConversation () Nothing usr conn c
+      -- notifies self
+      for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> Data.convMembers c)) $ \p ->
         push1 $
           p
             & pushRoute .~ RouteDirect
@@ -227,7 +237,8 @@ createConnectConversation usr conn j = do
                      if null mems
                        then connect n conv'
                        else do
-                         conv'' <- acceptOne2One usr conv' conn
+                         -- notifies self and other
+                         conv'' <- acceptOne2One () usr conv' conn
                          if Data.convType conv'' == ConnectConv
                            then connect n conv''
                            else return conv''
@@ -240,7 +251,8 @@ createConnectConversation usr conn j = do
           Nothing -> return $ Data.convName conv
         t <- liftIO getCurrentTime
         let e = Event ConvConnect (Data.convId conv) usr t (Just $ EdConnect j)
-        for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> Data.convMembers conv)) $ \p ->
+        -- notifies self and other
+        for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> Data.convMembers conv)) $ \p ->
           push1 $
             p
               & pushRoute .~ RouteDirect
@@ -266,9 +278,11 @@ handleConversationResponse = \case
   ConversationCreated cnv -> json cnv & setStatus status201 . location (cnvId cnv)
   ConversationExisted cnv -> json cnv & setStatus status200 . location (cnvId cnv)
 
-notifyCreatedConversation :: Maybe UTCTime -> UserId -> Maybe ConnId -> Data.Conversation -> Galley ()
-notifyCreatedConversation dtime usr conn c = do
+-- notifies members
+notifyCreatedConversation :: () -> Maybe UTCTime -> UserId -> Maybe ConnId -> Data.Conversation -> Galley ()
+notifyCreatedConversation () dtime usr conn c = do
   now <- maybe (liftIO getCurrentTime) pure dtime
+  -- notifies members
   pushSome =<< mapM (toPush now) (Data.convMembers c)
   where
     route
@@ -278,7 +292,7 @@ notifyCreatedConversation dtime usr conn c = do
       c' <- conversationView (memId m) c
       let e = Event ConvCreate (Data.convId c) usr t (Just $ EdConversation c')
       return $
-        newPush1 (evtFrom e) (ConvEvent e) (list1 (recipient m) [])
+        newPush1 (evtFrom e) (ConvEvent e) (list1 (undefined recipient m) [])
           & pushConn .~ conn
           & pushRoute .~ route
 
