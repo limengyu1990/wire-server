@@ -835,9 +835,9 @@ setPropertyH :: UserId ::: ConnId ::: PropertyKey ::: JsonRequest PropertyValue 
 setPropertyH (u ::: c ::: k ::: req) = do
   propkey <- safeParsePropertyKey k
   propval <- safeParsePropertyValue (lazyRequestBody (fromJsonRequest req))
-  empty <$ setProperty u c propkey propval
+  empty <$ setProperty (undefined u) c propkey propval
 
-setProperty :: UserId -> ConnId -> PropertyKey -> PropertyValue -> Handler ()
+setProperty :: () -> ConnId -> PropertyKey -> PropertyValue -> Handler ()
 setProperty u c propkey propval = do
   API.setProperty u c propkey propval !>> propDataError
 
@@ -860,10 +860,10 @@ safeParsePropertyValue lreqbody = do
   hoistEither $ fmapL (StdError . badRequest . pack) (eitherDecode lbs)
 
 deletePropertyH :: UserId ::: ConnId ::: PropertyKey -> Handler Response
-deletePropertyH (u ::: c ::: k) = lift (API.deleteProperty u c k) >> return empty
+deletePropertyH (u ::: c ::: k) = lift (API.deleteProperty (undefined u) c k) >> return empty
 
 clearPropertiesH :: UserId ::: ConnId -> Handler Response
-clearPropertiesH (u ::: c) = lift (API.clearProperties u c) >> return empty
+clearPropertiesH (u ::: c) = lift (API.clearProperties (undefined u) c) >> return empty
 
 getPropertyH :: UserId ::: PropertyKey ::: JSON -> Handler Response
 getPropertyH (u ::: k ::: _) = do

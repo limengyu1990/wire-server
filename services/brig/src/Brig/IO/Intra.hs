@@ -113,7 +113,7 @@ onPropertyEvent ::
   UserId ->
   -- | Client connection ID.
   ConnId ->
-  PropertyEvent -> -- TODO(event)
+  () ->
   AppIO ()
 onPropertyEvent orig conn e =
   notify
