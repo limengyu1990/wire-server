@@ -89,13 +89,13 @@ data Push
         _pushNativePriority :: Maybe Gundeck.Priority,
         _pushAsync :: Bool,
         pushOrigin :: UserId,
-        pushRecipients :: List1 Recipient,
+        pushRecipients :: List1 (),
         pushJson :: Object
       }
 
 makeLenses ''Push
 
-newPush1 :: UserId -> PushEvent -> List1 Recipient -> Push
+newPush1 :: UserId -> PushEvent -> List1 () -> Push
 newPush1 from e rr =
   Push
     { _pushConn = Nothing,
@@ -108,7 +108,7 @@ newPush1 from e rr =
       pushRecipients = rr
     }
 
-newPush :: UserId -> PushEvent -> [Recipient] -> Maybe Push
+newPush :: UserId -> PushEvent -> [()] -> Maybe Push
 newPush _ _ [] = Nothing
 newPush u e (r : rr) = Just $ newPush1 u e (list1 r rr)
 
@@ -151,14 +151,15 @@ push ps = do
             & Gundeck.pushOriginConnection .~ _pushConn p
             & Gundeck.pushTransient .~ _pushTransient p
             & maybe id (set Gundeck.pushNativePriority) (_pushNativePriority p)
-    toRecipient p r =
+            & const ()
+    toRecipient p (undefined -> r) =
       Gundeck.recipient (_recipientUserId r) (_pushRoute p)
         & Gundeck.recipientClients .~ _recipientClients r
 
 -----------------------------------------------------------------------------
 -- Helpers
 
-gundeckReq :: [Gundeck.Push] -> Galley (Request -> Request)
+gundeckReq :: [()] -> Galley (Request -> Request)
 gundeckReq ps = do
   o <- view options
   return $
