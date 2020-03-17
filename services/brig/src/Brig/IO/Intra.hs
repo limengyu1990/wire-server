@@ -97,12 +97,12 @@ onConnectionEvent ::
   -- | Client connection ID, if any.
   Maybe ConnId ->
   -- | The event.
-  ConnectionEvent ->
+  ConnectionEvent -> -- TODO(event)
   AppIO ()
 onConnectionEvent orig conn evt = do
   let from = ucFrom (ucConn evt)
   notify
-    (singleton $ ConnectionEvent evt)
+    (singleton $ undefined evt)
     orig
     Push.RouteAny
     conn
@@ -113,11 +113,11 @@ onPropertyEvent ::
   UserId ->
   -- | Client connection ID.
   ConnId ->
-  PropertyEvent ->
+  PropertyEvent -> -- TODO(event)
   AppIO ()
 onPropertyEvent orig conn e =
   notify
-    (singleton $ PropertyEvent e)
+    (singleton $ undefined PropertyEvent e)
     orig
     Push.RouteDirect
     (Just conn)
@@ -129,10 +129,10 @@ onClientEvent ::
   -- | Client connection ID.
   Maybe ConnId ->
   -- | The event.
-  ClientEvent ->
+  () ->
   AppIO ()
 onClientEvent orig conn e = do
-  let events = singleton (ClientEvent e)
+  let events = singleton e
   let rcps = list1 orig []
   -- Synchronous push for better delivery guarantees of these
   -- events and to make sure new clients have a first notification
@@ -179,6 +179,7 @@ journalEvent orig e = case e of
 -- as well as his other clients about a change to his user account
 -- or profile.
 dispatchNotifications :: UserId -> Maybe ConnId -> UserEvent -> AppIO ()
+-- TODO(event)
 dispatchNotifications orig conn e = case e of
   UserCreated {} -> return ()
   UserSuspended {} -> return ()
@@ -198,12 +199,12 @@ dispatchNotifications orig conn e = case e of
     recipients <- list1 orig <$> lookupContactList orig
     notify event orig Push.RouteDirect conn (pure recipients)
   where
-    event = singleton $ UserEvent e
+    event = singleton ()
 
 -- | Push events to other users.
 push ::
   -- | The events to push.
-  List1 Event ->
+  List1 () ->
   -- | The users to push to.
   List1 UserId ->
   -- | The originator of the events.
@@ -214,7 +215,7 @@ push ::
   Maybe ConnId ->
   AppIO ()
 push (toList -> events) usrs orig route conn =
-  case mapMaybe toPushData events of
+  case mapMaybe (undefined toPushData) events of
     [] -> pure ()
     x : xs -> rawPush (list1 x xs) usrs orig route conn
   where
@@ -227,7 +228,7 @@ push (toList -> events) usrs orig route conn =
 -- something that's not defined in Brig.
 rawPush ::
   -- | The events to push.
-  List1 (Builder, (Object, Maybe ApsData)) ->
+  List1 () ->
   -- | The users to push to.
   List1 UserId ->
   -- | The originator of the events.
@@ -240,7 +241,7 @@ rawPush ::
 -- TODO: if we decide to have service whitelist events in Brig instead of
 -- Galley, let's merge 'push' and 'rawPush' back. See Note [whitelist events].
 rawPush (toList -> events) usrs orig route conn = do
-  for_ events $ \e -> debug $ remote "gundeck" . msg (fst e)
+  for_ events $ \e -> debug $ remote "gundeck" . msg (show e)
   g <- view gundeck
   forM_ recipients $ \rcps ->
     void . recovering x3 rpcHandlers $ const $
@@ -250,7 +251,7 @@ rawPush (toList -> events) usrs orig route conn = do
         ( method POST
             . path "/i/push/v2"
             . zUser orig
-            . json (map (mkPush rcps . snd) events)
+            . json (map (mkPush rcps . snd . undefined) events)
             . expect2xx
         )
   where
@@ -271,7 +272,7 @@ rawPush (toList -> events) usrs orig route conn = do
 
 -- | (Asynchronously) notifies other users of events.
 notify ::
-  List1 Event ->
+  List1 () ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
@@ -286,7 +287,7 @@ notify events orig route conn recipients = forkAppIO (Just orig) $ do
   push events rs orig route conn
 
 notifySelf ::
-  List1 Event ->
+  List1 () ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
@@ -298,7 +299,7 @@ notifySelf events orig route conn =
   notify events orig route conn (pure (singleton orig))
 
 notifyContacts ::
-  List1 Event ->
+  List1 () ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
