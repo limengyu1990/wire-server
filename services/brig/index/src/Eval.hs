@@ -12,7 +12,7 @@ import Control.Lens
 import Control.Monad.Catch
 import qualified Data.Metrics as Metrics
 import Data.Text.Strict.Lens
-import qualified Database.V5.Bloodhound as ES
+import qualified Database.Bloodhound as ES
 import Imports
 import Network.HTTP.Client
 import Options

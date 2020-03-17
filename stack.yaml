@@ -55,8 +55,11 @@ extra-deps:
   commit: 20e2ce169d2c85a10c09b4dc564eacedf8acad68  # master (Mar 9, 2020)
 - ormolu-0.0.3.1
 - ghc-lib-parser-8.8.2.20200205@sha256:343f889f7b29f5ec07cf0d18d2a53f250fa5c002b6468a6a05b385d0191b8d34,8408  # for ormolu-0.0.3.1
+- git: https://github.com/wireapp/bloodhound
+  commit: 4cbc40057c75b5509bd3025205557860d05c2472
 
 allow-newer: false
 
 nix:
   shell-file: stack-deps.nix
+  enable: true
