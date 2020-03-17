@@ -1092,12 +1092,13 @@ createUserNoVerify uData = do
 
 deleteUserNoVerifyH :: UserId -> Handler Response
 deleteUserNoVerifyH uid = do
-  setStatus status202 empty <$ deleteUserNoVerify uid
+  setStatus status202 empty <$ deleteUserNoVerify () uid
 
-deleteUserNoVerify :: UserId -> Handler ()
-deleteUserNoVerify uid = do
+-- notifies contacts
+deleteUserNoVerify :: () -> UserId -> Handler ()
+deleteUserNoVerify () uid = do
   void $ lift (API.lookupAccount uid) >>= ifNothing userNotFound
-  lift $ API.deleteUserNoVerify uid
+  lift $ API.deleteUserNoVerify () uid
 
 changeSelfEmailNoSendH :: UserId ::: JsonRequest EmailUpdate -> Handler Response
 changeSelfEmailNoSendH (u ::: req) = changeEmail u req False

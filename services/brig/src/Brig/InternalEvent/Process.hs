@@ -19,8 +19,8 @@ import UnliftIO (timeout)
 -- | Handle an internal event.
 --
 -- Has a one-minute timeout that should be enough for anything that it does.
-onEvent :: () -> AppIO ()
-onEvent (undefined -> n) = handleTimeout $ case n of
+onEvent :: () -> InternalNotification -> AppIO ()
+onEvent () n = handleTimeout $ case n of
   DeleteUser uid -> do
     Log.info $
       msg (val "Processing user delete event")

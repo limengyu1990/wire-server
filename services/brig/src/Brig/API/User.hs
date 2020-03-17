@@ -884,9 +884,10 @@ lookupPasswordResetCode emailOrPhone = do
       c <- Data.lookupPasswordResetCode u
       return $ (k,) <$> c
 
-deleteUserNoVerify :: UserId -> AppIO ()
-deleteUserNoVerify uid = do
+deleteUserNoVerify :: () -> UserId -> AppIO ()
+deleteUserNoVerify () uid = do
   queue <- view internalEvents
+  -- notifies contacts
   Queue.enqueue queue (Internal.DeleteUser uid)
 
 -- | Garbage collect users if they're ephemeral and they have expired.
@@ -898,7 +899,7 @@ userGC u = case (userExpire u) of
     now <- liftIO =<< view currentTime
     -- ephemeral users past their expiry date are deleted
     when (diffUTCTime e now < 0) $
-      deleteUserNoVerify (userId u)
+      deleteUserNoVerify () (userId u)
     return u
 
 lookupProfile :: UserId -> UserId -> AppIO (Maybe UserProfile)
