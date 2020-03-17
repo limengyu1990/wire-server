@@ -56,17 +56,17 @@ import UnliftIO.Async (Concurrently (Concurrently, runConcurrently))
 
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
-addClient :: UserId -> Maybe ConnId -> Maybe IP -> NewClient -> ExceptT ClientError AppIO Client
-addClient u con ip new = do
+addClient :: UserId -> Maybe ConnId -> Maybe IP -> () -> ExceptT ClientError AppIO Client
+addClient u con ip (undefined -> new) = do
   acc <- lift (Data.lookupAccount u) >>= maybe (throwE (ClientUserNotFound u)) return
   loc <- maybe (return Nothing) locationOf ip
   maxPermClients <- fromMaybe Opt.defUserMaxPermClients <$> Opt.setUserMaxPermClients <$> view settings
   (clt, old, count) <- Data.addClient u clientId' new maxPermClients loc !>> ClientDataError
   let usr = accountUser acc
   lift $ do
-    for_ old $ execDelete u con
+    for_ old $ execDelete u con . undefined
     Intra.newClient u (clientId clt)
-    Intra.onClientEvent u con (ClientAdded u clt)
+    Intra.onClientEvent u con (undefined ClientAdded u clt)
     when (clientType clt == LegalHoldClientType) $ Intra.onUserEvent u con (UserLegalHoldEnabled u)
     when (count > 1)
       $ for_ (userEmail usr)
@@ -87,8 +87,8 @@ updateClient u c r = do
 
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
-rmClient :: UserId -> ConnId -> ClientId -> Maybe PlainTextPassword -> ExceptT ClientError AppIO ()
-rmClient u con clt pw =
+rmClient :: UserId -> ConnId -> () -> Maybe PlainTextPassword -> ExceptT ClientError AppIO ()
+rmClient u con (undefined -> clt) pw =
   maybe (throwE ClientNotFound) fn =<< lift (Data.lookupClient u clt)
   where
     fn client = do
@@ -99,7 +99,7 @@ rmClient u con clt pw =
         TemporaryClientType -> pure ()
         -- All other clients must authenticate
         _ -> Data.reauthenticate u pw !>> ClientDataError . ClientReAuthError
-      lift $ execDelete u (Just con) client
+      lift $ execDelete u (Just con) (undefined client)
 
 claimPrekey :: UserId -> ClientId -> AppIO (Maybe ClientPrekey)
 claimPrekey u c = do
@@ -146,11 +146,11 @@ claimLocalPrekeyBundles = foldMap getChunk . fmap Map.fromList . chunksOf 16
 -- Utilities
 
 -- | Perform an orderly deletion of an existing client.
-execDelete :: UserId -> Maybe ConnId -> Client -> AppIO ()
-execDelete u con c = do
+execDelete :: UserId -> Maybe ConnId -> () -> AppIO ()
+execDelete u con (undefined -> c) = do
   Intra.rmClient u (clientId c)
   for_ (clientCookie c) $ \l -> Auth.revokeCookies u [] [l]
-  Intra.onClientEvent u con (ClientRemoved u c)
+  Intra.onClientEvent u con (undefined ClientRemoved u c)
   Data.rmClient u (clientId c)
 
 -- | Defensive measure when no prekey is found for a
@@ -190,11 +190,11 @@ legalHoldClientRequested targetUser (LegalHoldClientRequest _requester lastPreke
     lhClientEvent :: UserEvent
     lhClientEvent = LegalHoldClientRequested eventData
 
-removeLegalHoldClient :: UserId -> AppIO ()
-removeLegalHoldClient uid = do
+removeLegalHoldClient :: () -> AppIO ()
+removeLegalHoldClient (undefined -> uid) = do
   clients <- Data.lookupClients uid
   -- Should only be one; but just in case we'll treat it as a list
   let legalHoldClients = filter ((== LegalHoldClientType) . clientType) clients
   -- maybe log if this isn't the case
-  forM_ legalHoldClients (execDelete uid Nothing)
+  forM_ legalHoldClients (execDelete uid Nothing . undefined)
   Intra.onUserEvent uid Nothing (UserLegalHoldDisabled uid)

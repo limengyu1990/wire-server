@@ -902,35 +902,35 @@ getMultiPrekeyBundles body = do
 addClientH :: JsonRequest NewClient ::: UserId ::: ConnId ::: Maybe IpAddr ::: JSON -> Handler Response
 addClientH (req ::: usr ::: con ::: ip ::: _) = do
   new <- parseJsonBody req
-  clt <- addClient new usr con ip
+  clt <- addClient (undefined new) usr con ip
   let loc = toByteString' $ clientId clt
   pure . setStatus status201 . addHeader "Location" loc . json $ clt
 
-addClient :: NewClient -> UserId -> ConnId -> Maybe IpAddr -> Handler Client
-addClient new usr con ip = do
+addClient :: () -> UserId -> ConnId -> Maybe IpAddr -> Handler Client
+addClient (undefined -> new) usr con ip = do
   -- Users can't add legal hold clients
   when (newClientType new == LegalHoldClientType) $
     throwE (clientError ClientLegalHoldCannotBeAdded)
-  API.addClient usr (Just con) (ipAddr <$> ip) new !>> clientError
+  API.addClient usr (Just con) (ipAddr <$> ip) (undefined new) !>> clientError
 
 -- | Add a client without authentication checks
 addClientInternalH :: UserId ::: JsonRequest NewClient ::: Maybe ConnId ::: JSON -> Handler Response
 addClientInternalH (usr ::: req ::: connId ::: _) = do
   new <- parseJsonBody req
-  setStatus status201 . json <$> addClientInternal usr new connId
+  setStatus status201 . json <$> addClientInternal usr (undefined new) connId
 
-addClientInternal :: UserId -> NewClient -> Maybe ConnId -> Handler Client
-addClientInternal usr new connId = do
-  API.addClient usr connId Nothing new !>> clientError
+addClientInternal :: UserId -> () -> Maybe ConnId -> Handler Client
+addClientInternal usr (undefined -> new) connId = do
+  API.addClient usr connId Nothing (undefined new) !>> clientError
 
 rmClientH :: JsonRequest RmClient ::: UserId ::: ConnId ::: ClientId ::: JSON -> Handler Response
 rmClientH (req ::: usr ::: con ::: clt ::: _) = do
   body <- parseJsonBody req
-  empty <$ rmClient body usr con clt
+  empty <$ rmClient body usr con (undefined clt)
 
-rmClient :: RmClient -> UserId -> ConnId -> ClientId -> Handler ()
-rmClient body usr con clt = do
-  API.rmClient usr con clt (rmPassword body) !>> clientError
+rmClient :: RmClient -> UserId -> ConnId -> () -> Handler ()
+rmClient body usr con (undefined -> clt) = do
+  API.rmClient usr con (undefined clt) (rmPassword body) !>> clientError
 
 legalHoldClientRequestedH :: UserId ::: JsonRequest LegalHoldClientRequest ::: JSON -> Handler Response
 legalHoldClientRequestedH (targetUser ::: req ::: _) = do
@@ -940,7 +940,7 @@ legalHoldClientRequestedH (targetUser ::: req ::: _) = do
 
 removeLegalHoldClientH :: UserId ::: JSON -> Handler Response
 removeLegalHoldClientH (uid ::: _) = do
-  lift $ API.removeLegalHoldClient uid
+  lift $ API.removeLegalHoldClient (undefined uid)
   return $ setStatus status200 empty
 
 updateClientH :: JsonRequest UpdateClient ::: UserId ::: ClientId ::: JSON -> Handler Response
