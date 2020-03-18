@@ -111,6 +111,8 @@ isSearchableH (_ ::: u) = json <$> lift (isSearchable u)
 isSearchable :: UserId -> AppIO SearchableStatus
 isSearchable = checkIndex
 
+-- | notifies contacts
+-- onUserEvent
 setSearchableH :: UserId ::: JsonRequest SearchableStatus -> Handler Response
 setSearchableH (u ::: r) = do
   s <- parseJsonBody r

@@ -38,6 +38,9 @@ import Network.Wai.Utilities
 -- | The public-facing endpoint for creating group conversations.
 --
 -- See Note [managed conversations].
+--
+-- notifies members
+-- ConvCreate
 createGroupConversationH :: UserId ::: ConnId ::: JsonRequest NewConvUnmanaged -> Galley Response
 createGroupConversationH (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req
@@ -52,6 +55,8 @@ createGroupConversation () zusr zcon wrapped@(NewConvUnmanaged body) = do
 
 -- | An internal endpoint for creating managed group conversations. Will
 -- throw an error for everything else.
+--
+-- notifies members
 internalCreateManagedConversationH :: UserId ::: ConnId ::: JsonRequest NewConvManaged -> Galley Response
 internalCreateManagedConversationH (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req

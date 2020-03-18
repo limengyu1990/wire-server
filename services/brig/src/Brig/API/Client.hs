@@ -56,6 +56,8 @@ import UnliftIO.Async (Concurrently (Concurrently, runConcurrently))
 
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
+--
+-- notifies contacts, UserLegalHoldEnabled, if client is legalhold
 addClient :: () -> Maybe ConnId -> Maybe IP -> () -> ExceptT ClientError AppIO Client
 addClient (undefined -> u) con ip (undefined -> new) = do
   acc <- lift (Data.lookupAccount u) >>= maybe (throwE (ClientUserNotFound u)) return

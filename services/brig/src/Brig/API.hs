@@ -899,6 +899,7 @@ getMultiPrekeyBundles body = do
     throwStd tooManyClients
   API.claimMultiPrekeyBundles body
 
+-- | notifies contacts only for legalhold client, which is guarded against
 addClientH :: JsonRequest NewClient ::: UserId ::: ConnId ::: Maybe IpAddr ::: JSON -> Handler Response
 addClientH (req ::: usr ::: con ::: ip ::: _) = do
   new <- parseJsonBody req
@@ -915,6 +916,8 @@ addClient (undefined -> new) usr con ip = do
   API.addClient (undefined usr) (Just con) (ipAddr <$> ip) (undefined new) !>> clientError
 
 -- | Add a client without authentication checks
+-- notifies contacts if client type is legalhold
+-- onUserEvent
 addClientInternalH :: UserId ::: JsonRequest NewClient ::: Maybe ConnId ::: JSON -> Handler Response
 addClientInternalH (usr ::: req ::: connId ::: _) = do
   new <- parseJsonBody req
@@ -933,12 +936,16 @@ rmClient :: RmClient -> UserId -> ConnId -> () -> Handler ()
 rmClient body usr con (undefined -> clt) = do
   API.rmClient usr con (undefined clt) (rmPassword body) !>> clientError
 
+-- | notifies contacts
+-- onUserEvent
 legalHoldClientRequestedH :: UserId ::: JsonRequest LegalHoldClientRequest ::: JSON -> Handler Response
 legalHoldClientRequestedH (targetUser ::: req ::: _) = do
   clientRequest <- parseJsonBody req
   lift $ API.legalHoldClientRequested (undefined targetUser) clientRequest
   return $ setStatus status200 empty
 
+-- | notifies contacts
+-- onUserEvent UserLegalHoldDisabled
 removeLegalHoldClientH :: UserId ::: JSON -> Handler Response
 removeLegalHoldClientH (uid ::: _) = do
   lift $ API.removeLegalHoldClient (undefined uid)
@@ -1007,6 +1014,8 @@ getRichInfo self user = do
 listPrekeyIdsH :: UserId ::: ClientId ::: JSON -> Handler Response
 listPrekeyIdsH (usr ::: clt ::: _) = json <$> lift (API.lookupPrekeyIds usr clt)
 
+-- | notifies self and connected users
+-- onConnectionEvent
 autoConnectH :: JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
 autoConnectH (_ ::: uid ::: conn ::: req) = do
   json <$> (autoConnect uid conn . const () =<< parseJsonBody req)
@@ -1090,6 +1099,8 @@ createUserNoVerify uData = do
      in API.activate key code (Just uid) !>> actError
   return $ CreateUserNoVerifyResponse uid (SelfProfile usr)
 
+-- | notifies contacts
+-- onUserEvent
 deleteUserNoVerifyH :: UserId -> Handler Response
 deleteUserNoVerifyH uid = do
   setStatus status202 empty <$ deleteUserNoVerify () uid
@@ -1209,6 +1220,8 @@ data GetPasswordResetCodeResp = GetPasswordResetCodeResp (PasswordResetKey, Pass
 instance ToJSON GetPasswordResetCodeResp where
   toJSON (GetPasswordResetCodeResp (k, c)) = object ["key" .= k, "code" .= c]
 
+-- | notifies contacts
+-- onUserUpdate
 updateUserH :: UserId ::: ConnId ::: JsonRequest UserUpdate -> Handler Response
 updateUserH (uid ::: conn ::: req) = do
   uu <- parseJsonBody req
@@ -1309,6 +1322,8 @@ getHandleInfoH (_ ::: _ ::: h) = do
     Just u -> json (UserHandleInfo u)
     Nothing -> setStatus status404 empty
 
+-- | notifies contacts
+-- onUserEvent
 changeHandleH :: UserId ::: ConnId ::: JsonRequest HandleUpdate -> Handler Response
 changeHandleH (u ::: conn ::: req) = do
   empty <$ (changeHandle (undefined u) conn =<< parseJsonBody req)
@@ -1364,6 +1379,8 @@ getConnectionsStatus ConnectionsStatusRequest {csrFrom, csrTo} flt = do
   where
     filterByRelation l rel = filter ((== rel) . csStatus) l
 
+-- | notifies self and other
+-- onConnectionEvent
 createConnectionH :: JSON ::: UserId ::: ConnId ::: JsonRequest ConnectionRequest -> Handler Response
 createConnectionH (_ ::: self ::: conn ::: req) = do
   cr <- parseJsonBody req
@@ -1372,6 +1389,8 @@ createConnectionH (_ ::: self ::: conn ::: req) = do
     ConnectionCreated c -> setStatus status201 $ json c
     ConnectionExists c -> json c
 
+-- | notifies self and other
+-- onConnectionEvent
 updateConnectionH :: JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
 updateConnectionH (_ ::: self ::: conn ::: other ::: req) = do
   newStatus <- cuStatus <$> parseJsonBody req
@@ -1489,6 +1508,8 @@ updateRichInfo uid rup = do
 -- FUTUREWORK: send an event
 -- Intra.onUserEvent uid (Just conn) (richInfoUpdate uid ri)
 
+-- | notifies contacts
+-- onUserEvent
 deleteUserH :: UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
 deleteUserH (u ::: r ::: _) = do
   body <- parseJsonBody r
@@ -1497,6 +1518,8 @@ deleteUserH (u ::: r ::: _) = do
     Nothing -> setStatus status200 empty
     Just ttl -> setStatus status202 (json (DeletionCodeTimeout ttl))
 
+-- | notifies contacts
+-- onUserEvent
 verifyDeleteUserH :: JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
 verifyDeleteUserH (r ::: _) = do
   body <- parseJsonBody r
