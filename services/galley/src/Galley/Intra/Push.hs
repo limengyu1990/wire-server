@@ -89,13 +89,13 @@ data Push
         _pushNativePriority :: Maybe Gundeck.Priority,
         _pushAsync :: Bool,
         pushOrigin :: UserId,
-        pushRecipients :: List1 (),
+        pushRecipients :: List1 Recipient,
         pushJson :: Object
       }
 
 makeLenses ''Push
 
-newPush1 :: UserId -> PushEvent -> List1 () -> Push
+newPush1 :: UserId -> PushEvent -> List1 Recipient -> Push
 newPush1 from e rr =
   Push
     { _pushConn = Nothing,
@@ -108,24 +108,24 @@ newPush1 from e rr =
       pushRecipients = rr
     }
 
-newPush :: UserId -> PushEvent -> [()] -> Maybe Push
+newPush :: UserId -> PushEvent -> [Recipient] -> Maybe Push
 newPush _ _ [] = Nothing
 newPush u e (r : rr) = Just $ newPush1 u e (list1 r rr)
 
 -- | Asynchronously send a single push, chunking it into multiple
 -- requests if there are more than 128 recipients.
-push1 :: Push -> Galley ()
-push1 p = push (list1 p [])
+push1 :: E -> Push -> Galley ()
+push1 E p = push E (list1 p [])
 
-pushSome :: [Push] -> Galley ()
-pushSome [] = return ()
-pushSome (x : xs) = push (list1 x xs)
+pushSome :: E -> [Push] -> Galley ()
+pushSome E [] = return ()
+pushSome E (x : xs) = push E (list1 x xs)
 
 -- | Asynchronously send multiple pushes, aggregating them into as
 -- few requests as possible, such that no single request targets
 -- more than 128 recipients.
-push :: List1 Push -> Galley ()
-push ps = do
+push :: E -> List1 Push -> Galley ()
+push E ps = do
   let (async, sync) = partition _pushAsync (toList ps)
   forM_ (pushes async) $ gundeckReq >=> callAsync "gundeck"
   void $ mapConcurrently (gundeckReq >=> call "gundeck") (pushes sync)

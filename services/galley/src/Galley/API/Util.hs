@@ -142,9 +142,10 @@ permissionCheckTeamConv zusr cnv perm = Data.conversation cnv >>= \case
   Nothing -> throwM convNotFound
 
 -- | Try to accept a 1-1 conversation, promoting connect conversations as appropriate.
--- notifies self and others, if it's a ConnectConv
-acceptOne2One :: () -> UserId -> Data.Conversation -> Maybe ConnId -> Galley Data.Conversation
-acceptOne2One () usr conv conn = case Data.convType conv of
+--
+-- EdMembersJoin event to you and other, if it's a ConnectConv that had < 2 members
+acceptOne2One :: E -> UserId -> Data.Conversation -> Maybe ConnId -> Galley Data.Conversation
+acceptOne2One E usr conv conn = case Data.convType conv of
   One2OneConv ->
     if makeIdOpaque usr `isMember` mems
       then return conv
@@ -164,9 +165,9 @@ acceptOne2One () usr conv conn = case Data.convType conv of
       -- members conv <> usr == [you, usr]
       let mems' = mems <> toList mm
       --
-      for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> mems')) $ \p ->
-        -- notifies self and other
-        push1 $ p & pushConn .~ conn & pushRoute .~ RouteDirect
+      for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> mems')) $ \p ->
+        -- EdMembersJoin event to you and other
+        push1 E $ p & pushConn .~ conn & pushRoute .~ RouteDirect
       return $ conv' {Data.convMembers = mems'}
   _ -> throwM $ invalidOp "accept: invalid conversation type"
   where
