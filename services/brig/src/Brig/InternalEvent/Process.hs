@@ -19,14 +19,16 @@ import UnliftIO (timeout)
 -- | Handle an internal event.
 --
 -- Has a one-minute timeout that should be enough for anything that it does.
-onEvent :: () -> InternalNotification -> AppIO ()
-onEvent () n = handleTimeout $ case n of
-  DeleteUser uid -> do
+--
+-- UserDeleted event to contacts
+onEvent :: E -> InternalNotification -> AppIO ()
+onEvent E n = handleTimeout $ case n of
+  DeleteUser E uid -> do
     Log.info $
       msg (val "Processing user delete event")
         ~~ field "user" (toByteString uid)
-    -- notifies contacts
-    API.lookupAccount uid >>= mapM_ (API.deleteAccount . undefined)
+    -- UserDeleted event to contacts
+    API.lookupAccount uid >>= mapM_ (API.deleteAccount E)
     -- As user deletions are expensive resource-wise in the context of
     -- bulk user deletions (e.g. during team deletions),
     -- wait 'delay' ms before processing the next event

@@ -6,9 +6,10 @@ where
 import BasePrelude
 import Data.Aeson
 import Data.Id
+import Imports
 
 data InternalNotification
-  = DeleteUser !UserId
+  = DeleteUser !E !UserId
   | DeleteService !ProviderId !ServiceId
   deriving (Eq, Show)
 
@@ -31,11 +32,11 @@ instance FromJSON InternalNotification where
   parseJSON = withObject "InternalNotification" $ \o -> do
     t <- o .: "type"
     case (t :: InternalNotificationType) of
-      UserDeletion -> DeleteUser <$> o .: "user"
+      UserDeletion -> DeleteUser E <$> o .: "user"
       ServiceDeletion -> DeleteService <$> o .: "provider" <*> o .: "service"
 
 instance ToJSON InternalNotification where
-  toJSON (DeleteUser uid) =
+  toJSON (DeleteUser E uid) =
     object
       [ "user" .= uid,
         "type" .= UserDeletion

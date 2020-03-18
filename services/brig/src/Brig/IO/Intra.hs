@@ -85,59 +85,64 @@ import System.Logger.Class as Log hiding ((.=), name)
 -----------------------------------------------------------------------------
 -- Event Handlers
 
-onUserEvent :: UserId -> Maybe ConnId -> () -> AppIO ()
-onUserEvent orig conn (undefined -> e) =
+onUserEvent :: E -> UserId -> Maybe ConnId -> UserEvent -> AppIO ()
+onUserEvent E orig conn e =
   updateSearchIndex orig e
-    *> dispatchNotifications orig conn (undefined e)
+    *> dispatchNotifications E orig conn e
     *> journalEvent orig e
 
 onConnectionEvent ::
+  E ->
   -- | Originator of the event.
   UserId ->
   -- | Client connection ID, if any.
   Maybe ConnId ->
   -- | The event.
-  () ->
+  ConnectionEvent ->
   AppIO ()
-onConnectionEvent orig conn (undefined -> evt) = do
+onConnectionEvent E orig conn evt = do
   let from = ucFrom (ucConn evt)
   notify
-    (singleton $ undefined evt)
+    E
+    (singleton $ ConnectionEvent evt)
     orig
     Push.RouteAny
     conn
     (return $ list1 from [])
 
 onPropertyEvent ::
+  E ->
   -- | Originator of the event.
   UserId ->
   -- | Client connection ID.
   ConnId ->
-  () ->
+  PropertyEvent ->
   AppIO ()
-onPropertyEvent orig conn e =
+onPropertyEvent E orig conn e =
   notify
-    (singleton $ undefined PropertyEvent e)
+    E
+    (singleton $ PropertyEvent e)
     orig
     Push.RouteDirect
     (Just conn)
     (return $ list1 orig [])
 
 onClientEvent ::
+  E ->
   -- | Originator of the event.
   UserId ->
   -- | Client connection ID.
   Maybe ConnId ->
   -- | The event.
-  () ->
+  ClientEvent ->
   AppIO ()
-onClientEvent orig conn e = do
-  let events = singleton e
+onClientEvent E orig conn e = do
+  let events = singleton (undefined e)
   let rcps = list1 orig []
   -- Synchronous push for better delivery guarantees of these
   -- events and to make sure new clients have a first notification
   -- in the stream.
-  push events rcps orig Push.RouteAny conn
+  push E events rcps orig Push.RouteAny conn
 
 updateSearchIndex :: UserId -> UserEvent -> AppIO ()
 updateSearchIndex orig e = case e of
@@ -178,33 +183,34 @@ journalEvent orig e = case e of
 -- | Notify the origin user's contact list (first-level contacts),
 -- as well as his other clients about a change to his user account
 -- or profile.
-dispatchNotifications :: UserId -> Maybe ConnId -> () -> AppIO ()
-dispatchNotifications orig conn (undefined -> e) = case e of
+dispatchNotifications :: E -> UserId -> Maybe ConnId -> UserEvent -> AppIO ()
+dispatchNotifications E orig conn e = case e of
   UserCreated {} -> return ()
   UserSuspended {} -> return ()
   UserResumed {} -> return ()
-  LegalHoldClientRequested {} -> notifyContacts event orig Push.RouteAny conn
-  UserLegalHoldDisabled {} -> notifyContacts event orig Push.RouteAny conn
-  UserLegalHoldEnabled {} -> notifyContacts event orig Push.RouteAny conn
+  LegalHoldClientRequested {} -> notifyContacts E event orig Push.RouteAny conn
+  UserLegalHoldDisabled {} -> notifyContacts E event orig Push.RouteAny conn
+  UserLegalHoldEnabled {} -> notifyContacts E event orig Push.RouteAny conn
   UserUpdated {..}
     -- bug hiding?
-    | isJust eupLocale -> notifySelf event orig Push.RouteDirect conn
-    | otherwise -> notifyContacts event orig Push.RouteDirect conn
-  UserActivated {} -> notifySelf event orig Push.RouteAny conn
-  UserIdentityUpdated {} -> notifySelf event orig Push.RouteDirect conn
-  UserIdentityRemoved {} -> notifySelf event orig Push.RouteDirect conn
+    | isJust eupLocale -> notifySelf E event orig Push.RouteDirect conn
+    | otherwise -> notifyContacts E event orig Push.RouteDirect conn
+  UserActivated {} -> notifySelf E event orig Push.RouteAny conn
+  UserIdentityUpdated {} -> notifySelf E event orig Push.RouteDirect conn
+  UserIdentityRemoved {} -> notifySelf E event orig Push.RouteDirect conn
   UserDeleted {} -> do
     -- n.b. Synchronously fetch the contact list on the current thread.
     -- If done asynchronously, the connections may already have been deleted.
     recipients <- list1 orig <$> lookupContactList orig
-    notify event orig Push.RouteDirect conn (pure recipients)
+    notify E event orig Push.RouteDirect conn (pure recipients)
   where
-    event = singleton ()
+    event = singleton $ UserEvent e
 
 -- | Push events to other users.
 push ::
+  E ->
   -- | The events to push.
-  List1 () ->
+  List1 Event ->
   -- | The users to push to.
   List1 UserId ->
   -- | The originator of the events.
@@ -214,10 +220,10 @@ push ::
   -- | The originating device connection.
   Maybe ConnId ->
   AppIO ()
-push (toList -> events) usrs orig route conn =
-  case mapMaybe (undefined toPushData) events of
+push E (toList -> events) usrs orig route conn =
+  case mapMaybe toPushData events of
     [] -> pure ()
-    x : xs -> rawPush (list1 x xs) usrs orig route conn
+    x : xs -> rawPush E (list1 x xs) usrs orig route conn
   where
     toPushData :: Event -> Maybe (Builder, (Object, Maybe ApsData))
     toPushData e = case toPushFormat e of
@@ -227,8 +233,9 @@ push (toList -> events) usrs orig route conn =
 -- | Push encoded events to other users. Useful if you want to push
 -- something that's not defined in Brig.
 rawPush ::
+  E ->
   -- | The events to push.
-  List1 () ->
+  List1 (Builder, (Object, Maybe ApsData)) ->
   -- | The users to push to.
   List1 UserId ->
   -- | The originator of the events.
@@ -240,8 +247,8 @@ rawPush ::
   AppIO ()
 -- TODO: if we decide to have service whitelist events in Brig instead of
 -- Galley, let's merge 'push' and 'rawPush' back. See Note [whitelist events].
-rawPush (toList -> events) usrs orig route conn = do
-  for_ events $ \e -> debug $ remote "gundeck" . msg (show e)
+rawPush E (toList -> events) usrs orig route conn = do
+  for_ events $ \e -> debug $ remote "gundeck" . msg (fst e)
   g <- view gundeck
   forM_ recipients $ \rcps ->
     void . recovering x3 rpcHandlers $ const $
@@ -272,7 +279,8 @@ rawPush (toList -> events) usrs orig route conn = do
 
 -- | (Asynchronously) notifies other users of events.
 notify ::
-  List1 () ->
+  E ->
+  List1 Event ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
@@ -282,12 +290,13 @@ notify ::
   -- | Users to notify.
   IO (List1 UserId) ->
   AppIO ()
-notify events orig route conn recipients = forkAppIO (Just orig) $ do
+notify E events orig route conn recipients = forkAppIO (Just orig) $ do
   rs <- liftIO recipients
-  push events rs orig route conn
+  push E events rs orig route conn
 
 notifySelf ::
-  List1 () ->
+  E ->
+  List1 Event ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
@@ -295,11 +304,12 @@ notifySelf ::
   -- | Origin device connection, if any.
   Maybe ConnId ->
   AppIO ()
-notifySelf events orig route conn =
-  notify events orig route conn (pure (singleton orig))
+notifySelf E events orig route conn =
+  notify E events orig route conn (pure (singleton orig))
 
 notifyContacts ::
-  List1 () ->
+  E ->
+  List1 Event ->
   -- | Origin user.
   UserId ->
   -- | Push routing strategy.
@@ -307,9 +317,9 @@ notifyContacts ::
   -- | Origin device connection, if any.
   Maybe ConnId ->
   AppIO ()
-notifyContacts events orig route conn = do
+notifyContacts E events orig route conn = do
   env <- ask
-  notify events orig route conn
+  notify E events orig route conn
     $ runAppT env
     $ list1 orig <$> liftA2 (++) contacts teamContacts
   where

@@ -19,17 +19,23 @@ import Control.Error
 import Data.Id
 import Imports
 
-setProperty :: () -> ConnId -> PropertyKey -> PropertyValue -> ExceptT PropertiesDataError AppIO ()
-setProperty (undefined -> u) c k v = do
+-- PropertySet event to self
+setProperty :: E -> UserId -> ConnId -> PropertyKey -> PropertyValue -> ExceptT PropertiesDataError AppIO ()
+setProperty E u c k v = do
   Data.insertProperty u k v
-  lift $ Intra.onPropertyEvent u c (undefined PropertySet u k v)
+  -- PropertySet event to self
+  lift $ Intra.onPropertyEvent E u c (PropertySet u k v)
 
-deleteProperty :: () -> ConnId -> PropertyKey -> AppIO ()
-deleteProperty (undefined -> u) c k = do
+-- PropertyDeleted event to self
+deleteProperty :: E -> UserId -> ConnId -> PropertyKey -> AppIO ()
+deleteProperty E u c k = do
   Data.deleteProperty u k
-  Intra.onPropertyEvent u c (undefined PropertyDeleted u k)
+  -- PropertyDeleted event to self
+  Intra.onPropertyEvent E u c (PropertyDeleted u k)
 
-clearProperties :: () -> ConnId -> AppIO ()
-clearProperties (undefined -> u) c = do
+-- PropertiesCleared event to self
+clearProperties :: E -> UserId -> ConnId -> AppIO ()
+clearProperties E u c = do
   Data.clearProperties u
-  Intra.onPropertyEvent u c (undefined PropertiesCleared u)
+  -- PropertiesCleared event to self
+  Intra.onPropertyEvent E u c (PropertiesCleared u)

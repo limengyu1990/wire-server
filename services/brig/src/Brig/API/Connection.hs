@@ -38,14 +38,15 @@ import Imports
 import qualified System.Logger.Class as Log
 import System.Logger.Message
 
--- notifies self
--- notifies other
+-- ConnectionUpdated event to self, unless both states already exist and any state is blocked or both already accepted
+-- ConnectionUpdated event to other, unless both states already exist and any state is blocked or both already accepted
 createConnection ::
+  E ->
   UserId ->
-  () ->
+  ConnectionRequest ->
   ConnId ->
   ExceptT ConnectionError AppIO ConnectionResult
-createConnection self (undefined -> ConnectionRequest {..}) conn = do
+createConnection E self ConnectionRequest {..} conn = do
   when (self == crUser)
     $ throwE
     $ InvalidUser crUser
@@ -63,13 +64,20 @@ createConnection self (undefined -> ConnectionRequest {..}) conn = do
     throwE ConnectSameBindingTeamUsers
   s2o <- lift $ Data.lookupConnection self crUser
   o2s <- lift $ Data.lookupConnection crUser self
-  case update <$> s2o <*> o2s of
-    Just rs -> rs
+  case update E <$> s2o <*> o2s of
+    Just rs ->
+      -- ConnectionUpdated event to self, unless any state is blocked or both already accepted
+      -- ConnectionUpdated event to other, unless any state is blocked or both already accepted
+      rs
     Nothing -> do
       checkLimit self
-      ConnectionCreated <$> insert Nothing Nothing
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      ConnectionCreated <$> insert E Nothing Nothing
   where
-    insert s2o o2s = lift $ do
+    -- ConnectionUpdated event to self
+    -- ConnectionUpdated event to other
+    insert E s2o o2s = lift $ do
       Log.info $
         Log.connection self crUser
           . msg (val "Creating connection")
@@ -78,22 +86,30 @@ createConnection self (undefined -> ConnectionRequest {..}) conn = do
       o2s' <- Data.insertConnection crUser self Pending (Just crMessage) cnv
       e2o <- ConnectionUpdated o2s' (ucStatus <$> o2s) <$> Data.lookupName self
       e2s <- pure $ ConnectionUpdated s2o' (ucStatus <$> s2o) Nothing
-      -- notifies other
-      -- notifies self
-      mapM_ (Intra.onConnectionEvent self (Just conn)) [undefined e2o, undefined e2s]
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      mapM_ (Intra.onConnectionEvent E self (Just conn)) [e2o, e2s]
       return s2o'
-    update s2o o2s = case (ucStatus s2o, ucStatus o2s) of
+    -- ConnectionUpdated event to self, unless any state is blocked or both already accepted
+    -- ConnectionUpdated event to other, unless any state is blocked or both already accepted
+    update E s2o o2s = case (ucStatus s2o, ucStatus o2s) of
       (Accepted, Accepted) -> return $ ConnectionExists s2o
       (Accepted, Blocked) -> return $ ConnectionExists s2o
       (Sent, Blocked) -> return $ ConnectionExists s2o
       (Blocked, _) -> throwE $ InvalidTransition self Sent
       (_, Blocked) -> change s2o Sent
-      (_, Sent) -> accept s2o o2s
-      (_, Accepted) -> accept s2o o2s
-      (_, Ignored) -> resend s2o o2s
-      (_, Pending) -> resend s2o o2s
-      (_, Cancelled) -> resend s2o o2s
-    accept s2o o2s = do
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      (_, Sent) -> accept E s2o o2s
+      (_, Accepted) -> accept E s2o o2s
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      (_, Ignored) -> resend E s2o o2s
+      (_, Pending) -> resend E s2o o2s
+      (_, Cancelled) -> resend E s2o o2s
+    -- ConnectionUpdated event to self
+    -- ConnectionUpdated event to other
+    accept E s2o o2s = do
       when (ucStatus s2o `notElem` [Sent, Accepted]) $
         checkLimit self
       Log.info $
@@ -108,17 +124,21 @@ createConnection self (undefined -> ConnectionRequest {..}) conn = do
             else Data.updateConnection o2s Accepted
       e2o <- lift $ ConnectionUpdated o2s' (Just $ ucStatus o2s) <$> Data.lookupName self
       e2s <- pure $ ConnectionUpdated s2o' (Just $ ucStatus s2o) Nothing
-      -- notifies other
-      -- notifies self
-      lift $ mapM_ (Intra.onConnectionEvent self (Just conn)) [undefined e2o, undefined e2s]
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      lift $ mapM_ (Intra.onConnectionEvent E self (Just conn)) [e2o, e2s]
       return $ ConnectionExists s2o'
-    resend s2o o2s = do
+    -- ConnectionUpdated event to self
+    -- ConnectionUpdated event to other
+    resend E s2o o2s = do
       when (ucStatus s2o `notElem` [Sent, Accepted]) $
         checkLimit self
       Log.info $
         Log.connection self (ucTo s2o)
           . msg (val "Resending connection request")
-      s2o' <- insert (Just s2o) (Just o2s)
+      -- ConnectionUpdated event to self
+      -- ConnectionUpdated event to other
+      s2o' <- insert E (Just s2o) (Just o2s)
       return $ ConnectionExists s2o'
     change c s = ConnectionExists <$> lift (Data.updateConnection c s)
     belongSameTeam = do
@@ -126,25 +146,26 @@ createConnection self (undefined -> ConnectionRequest {..}) conn = do
       crTeam <- Intra.getTeamId crUser
       pure $ isJust selfTeam && selfTeam == crTeam
 
--- notifies self
--- notifies other
-
 -- | Change the status of a connection from one user to another.
 --
 -- Note: 'updateConnection' doesn't explicitly check that users don't belong to the same team,
 -- because a connection between two team members can not exist in the first place.
 -- {#RefConnectionTeam}
+--
+-- ConnectionUpdated event to self, if our state changes
+-- ConnectionUpdated event to other, if their state changes as well
 updateConnection ::
+  E ->
   -- | From
   UserId ->
   -- | To
   UserId ->
   -- | Desired relation status
-  () ->
+  Relation ->
   -- | Acting device connection ID
   Maybe ConnId ->
   ExceptT ConnectionError AppIO (Maybe UserConnection)
-updateConnection self other (undefined -> newStatus) conn = do
+updateConnection E self other newStatus conn = do
   s2o <- connection self other
   o2s <- connection other self
   s2o' <- case (ucStatus s2o, ucStatus o2s, newStatus) of
@@ -187,8 +208,8 @@ updateConnection self other (undefined -> newStatus) conn = do
     _ -> throwE $ InvalidTransition self newStatus
   lift $ for_ s2o' $ \c ->
     let e2s = ConnectionUpdated c (Just $ ucStatus s2o) Nothing
-     in -- notifies self
-        Intra.onConnectionEvent self conn (undefined e2s)
+     in -- ConnectionUpdated event to self
+        Intra.onConnectionEvent E self conn e2s
   return s2o'
   where
     accept s2o o2s = do
@@ -207,7 +228,8 @@ updateConnection self other (undefined -> newStatus) conn = do
             then Data.updateConnection o2s Accepted
             else Data.updateConnection o2s Blocked
         e2o <- ConnectionUpdated o2s' (Just $ ucStatus o2s) <$> Data.lookupName self
-        Intra.onConnectionEvent self conn (undefined e2o)
+        -- ConnectionUpdated event to other
+        Intra.onConnectionEvent E self conn e2o
       lift $ Just <$> Data.updateConnection s2o Accepted
     block s2o = lift $ do
       Log.info $
@@ -228,7 +250,8 @@ updateConnection self other (undefined -> newStatus) conn = do
             then Data.updateConnection o2s Accepted
             else Data.updateConnection o2s Blocked
         e2o <- ConnectionUpdated o2s' (Just $ ucStatus o2s) <$> Data.lookupName self
-        Intra.onConnectionEvent self conn (undefined e2o)
+        -- ConnectionUpdated event to other
+        Intra.onConnectionEvent E self conn e2o
       lift $ Just <$> Data.updateConnection s2o new
     cancel s2o o2s = do
       Log.info $
@@ -237,19 +260,20 @@ updateConnection self other (undefined -> newStatus) conn = do
       lift $ for_ (ucConvId s2o) $ Intra.blockConv (ucFrom s2o) conn
       o2s' <- lift $ Data.updateConnection o2s Cancelled
       let e2o = ConnectionUpdated o2s' (Just $ ucStatus o2s) Nothing
-      lift $ Intra.onConnectionEvent self conn (undefined e2o)
+      -- ConnectionUpdated event to other
+      lift $ Intra.onConnectionEvent E self conn e2o
       change s2o Cancelled
     change c s = lift $ Just <$> Data.updateConnection c s
     connection a b = lift (Data.lookupConnection a b) >>= tryJust (NotConnected a b)
 
--- notifies self
--- notifies others
+-- ConnectionUpdated event to self and users connecting with
 autoConnect ::
+  E ->
   UserId ->
-  Set () ->
+  Set UserId ->
   Maybe ConnId ->
   ExceptT ConnectionError AppIO [UserConnection]
-autoConnect from (Set.toList . undefined -> to) conn = do
+autoConnect E from (Set.toList -> to) conn = do
   selfActive <- lift $ Data.isActivated from
   -- FIXME: checkLimit from
   -- Checking the limit here is currently a too heavy operation
@@ -269,7 +293,8 @@ autoConnect from (Set.toList . undefined -> to) conn = do
       self <- Data.lookupName from
       ucs <- Data.connectUsers from convs
       let events = map (toEvent self) ucs
-      forM_ events $ Intra.onConnectionEvent from conn . undefined
+      -- ConnectionUpdated event to self and users connecting with
+      forM_ events $ Intra.onConnectionEvent E from conn
       return ucs
     -- Assumption: if there's an existing connection, don't touch it.
     -- The exception to this rule _could_ be a sent/pending connection

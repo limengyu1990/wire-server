@@ -57,20 +57,24 @@ import UnliftIO.Async (Concurrently (Concurrently, runConcurrently))
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
 --
--- notifies contacts, UserLegalHoldEnabled, if client is legalhold
-addClient :: () -> Maybe ConnId -> Maybe IP -> () -> ExceptT ClientError AppIO Client
-addClient (undefined -> u) con ip (undefined -> new) = do
+-- ClientAdded event to self
+-- UserLegalHoldEnabled event to contacts, if client is legalhold
+-- ClientRemoved event to self, if removing old clients
+addClient :: E -> UserId -> Maybe ConnId -> Maybe IP -> NewClient -> ExceptT ClientError AppIO Client
+addClient E u con ip new = do
   acc <- lift (Data.lookupAccount u) >>= maybe (throwE (ClientUserNotFound u)) return
   loc <- maybe (return Nothing) locationOf ip
   maxPermClients <- fromMaybe Opt.defUserMaxPermClients <$> Opt.setUserMaxPermClients <$> view settings
   (clt, old, count) <- Data.addClient u clientId' new maxPermClients loc !>> ClientDataError
   let usr = accountUser acc
   lift $ do
-    for_ old $ execDelete u con . undefined
+    -- ClientRemoved event to self, if removing old clients
+    for_ old $ execDelete E u con
     Intra.newClient u (clientId clt)
-    Intra.onClientEvent u con (undefined ClientAdded u clt)
-    -- notifies contacts
-    when (clientType clt == LegalHoldClientType) $ Intra.onUserEvent u con (undefined UserLegalHoldEnabled u)
+    -- ClientAdded event to self
+    Intra.onClientEvent E u con (ClientAdded u clt)
+    -- UserLegalHoldEnabled event to contacts, if client is legalhold
+    when (clientType clt == LegalHoldClientType) $ Intra.onUserEvent E u con (UserLegalHoldEnabled u)
     when (count > 1)
       $ for_ (userEmail usr)
       $ \email ->
@@ -90,8 +94,10 @@ updateClient u c r = do
 
 -- nb. We must ensure that the set of clients known to brig is always
 -- a superset of the clients known to galley.
-rmClient :: UserId -> ConnId -> () -> Maybe PlainTextPassword -> ExceptT ClientError AppIO ()
-rmClient u con (undefined -> clt) pw =
+--
+-- ClientRemoved event to self
+rmClient :: E -> UserId -> ConnId -> ClientId -> Maybe PlainTextPassword -> ExceptT ClientError AppIO ()
+rmClient E u con clt pw =
   maybe (throwE ClientNotFound) fn =<< lift (Data.lookupClient u clt)
   where
     fn client = do
@@ -102,7 +108,8 @@ rmClient u con (undefined -> clt) pw =
         TemporaryClientType -> pure ()
         -- All other clients must authenticate
         _ -> Data.reauthenticate u pw !>> ClientDataError . ClientReAuthError
-      lift $ execDelete u (Just con) (undefined client)
+      -- ClientRemoved event to self
+      lift $ execDelete E u (Just con) client
 
 claimPrekey :: UserId -> ClientId -> AppIO (Maybe ClientPrekey)
 claimPrekey u c = do
@@ -149,11 +156,14 @@ claimLocalPrekeyBundles = foldMap getChunk . fmap Map.fromList . chunksOf 16
 -- Utilities
 
 -- | Perform an orderly deletion of an existing client.
-execDelete :: UserId -> Maybe ConnId -> () -> AppIO ()
-execDelete u con (undefined -> c) = do
+--
+-- ClientRemoved event to self
+execDelete :: E -> UserId -> Maybe ConnId -> Client -> AppIO ()
+execDelete E u con c = do
   Intra.rmClient u (clientId c)
   for_ (clientCookie c) $ \l -> Auth.revokeCookies u [] [l]
-  Intra.onClientEvent u con (undefined ClientRemoved u c)
+  -- ClientRemoved event to self
+  Intra.onClientEvent E u con (ClientRemoved u c)
   Data.rmClient u (clientId c)
 
 -- | Defensive measure when no prekey is found for a
@@ -182,9 +192,11 @@ pubClient c =
       pubClientClass = clientClass c
     }
 
-legalHoldClientRequested :: () -> LegalHoldClientRequest -> AppIO ()
-legalHoldClientRequested (undefined -> targetUser) (LegalHoldClientRequest _requester lastPrekey') =
-  Intra.onUserEvent targetUser Nothing (undefined lhClientEvent)
+-- LegalHoldClientRequested event to contacts
+legalHoldClientRequested :: E -> UserId -> LegalHoldClientRequest -> AppIO ()
+legalHoldClientRequested E targetUser (LegalHoldClientRequest _requester lastPrekey') =
+  -- LegalHoldClientRequested event to contacts
+  Intra.onUserEvent E targetUser Nothing lhClientEvent
   where
     clientId :: ClientId
     clientId = clientIdFromPrekey $ unpackLastPrekey lastPrekey'
@@ -193,12 +205,15 @@ legalHoldClientRequested (undefined -> targetUser) (LegalHoldClientRequest _requ
     lhClientEvent :: UserEvent
     lhClientEvent = LegalHoldClientRequested eventData
 
-removeLegalHoldClient :: () -> AppIO ()
-removeLegalHoldClient (undefined -> uid) = do
+-- ClientRemoved event to self
+-- UserLegalHoldDisabled event to contacts
+removeLegalHoldClient :: E -> UserId -> AppIO ()
+removeLegalHoldClient E uid = do
   clients <- Data.lookupClients uid
   -- Should only be one; but just in case we'll treat it as a list
   let legalHoldClients = filter ((== LegalHoldClientType) . clientType) clients
   -- maybe log if this isn't the case
-  forM_ legalHoldClients (execDelete uid Nothing . undefined)
-  -- notifies contacts
-  Intra.onUserEvent uid Nothing (undefined UserLegalHoldDisabled uid)
+  -- ClientRemoved event to self
+  forM_ legalHoldClients (execDelete E uid Nothing)
+  -- UserLegalHoldDisabled event to contacts
+  Intra.onUserEvent E uid Nothing (UserLegalHoldDisabled uid)

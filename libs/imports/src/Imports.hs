@@ -97,6 +97,7 @@ module Imports
     -- * Extra Helpers
     whenM,
     unlessM,
+    E (..),
   )
 where
 
@@ -219,6 +220,9 @@ import Prelude
     undefined,
   )
 import qualified Prelude as P
+
+data E = E
+  deriving (Show, Eq)
 
 ----------------------------------------------------------------------------
 -- Type aliases
