@@ -886,8 +886,8 @@ sitemap = do
     zauthUserId
       .&. opt zauthConnId
       .&. jsonRequest @Connect
-  -- MemberJoin EdMembersJoin event to you
-  -- MemberJoin EdMembersJoin event to other, if other was already member
+  -- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
+  -- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
   put "/i/conversations/:cnv/accept/v2" (continue (Update.acceptConvH E)) $
     zauthUserId
       .&. opt zauthConnId

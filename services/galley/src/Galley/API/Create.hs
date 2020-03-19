@@ -215,16 +215,24 @@ createOne2OneConversation E zusr zcon (NewConvUnmanaged j) = do
       notifyCreatedConversation E Nothing zusr (Just zcon) c
       conversationCreated zusr c
 
+-- ConvCreate EdConversation event to self, if conversation did not exist before
+-- ConvConnect EdConnect event to self, unless unless conversation existed and is not connect conversation
+-- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
 createConnectConversationH :: E -> UserId ::: Maybe ConnId ::: JsonRequest Connect -> Galley Response
 createConnectConversationH E (usr ::: conn ::: req) = do
   j <- fromJsonBody req
   handleConversationResponse <$> createConnectConversation E usr conn j
 
--- TODO: this is not quite right, especially with acceptOne2One
+-- TODO: this is all quite complicated, i.e.
+-- - if the conversation type is One2OneConv, do we know there are two members?
+-- - if only self is in the connect conv already, should we send a ConvConnect event to ourselves? (seems like we do)
+--
 -- ConvCreate EdConversation event to self, if conversation did not exist before
--- ConvConnect EdConnect event to self, (unless conversation existed and is not connect conversation)
+-- ConvConnect EdConnect event to self, unless unless conversation existed and is not connect conversation
 -- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
--- MemberJoin EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
+-- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
 createConnectConversation :: E -> UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
 createConnectConversation E usr conn j = do
   (x, y) <- toUUIDs (makeIdOpaque usr) (makeIdOpaque (cRecipient j))
@@ -236,7 +244,7 @@ createConnectConversation E usr conn j = do
     (create x y n)
     -- ConvConnect EdConnect event to self, if conversation existed and type is connect
     -- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
-    -- MemberJoin EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
+    -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
     (update E n)
     conv
   where
@@ -253,14 +261,17 @@ createConnectConversation E usr conn j = do
             & pushRoute .~ RouteDirect
             & pushConn .~ conn
       conversationCreated usr c
-    -- ConvConnect EdConnect event to self, if conversation type is connect
+    -- ConvConnect EdConnect event to self, if conversation type is connect (so if
     -- ConvConnect EdConnect event to other, if conversation type is connect and other was already member
-    -- MemberJoin EdMembersJoin event to you and other, if conversation type is connect and only the other is already part of it
+    -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
     update E n conv =
       let mems = Data.convMembers conv
        in conversationExisted usr
             =<< if | makeIdOpaque usr `isMember` mems ->
+                     -- we know: we are in the conversation, maybe other
+                     --
                      -- ConvConnect EdConnect event to members, if conversation type is connect and self was already member
+                     -- (so, only if we are the only member???)
                      connect E n conv
                    | otherwise -> do
                      now <- liftIO getCurrentTime
@@ -271,15 +282,25 @@ createConnectConversation E usr conn j = do
                              }
                      if null mems
                        then do
+                         -- we know: no-one was in conv,
+                         -- now we should be in conv'
+                         --
                          -- ConvConnect EdConnect event to self, if conversation type is connect and conversation was empty
                          connect E n conv'
                        else do
-                         -- MemberJoin EdMembersJoin event to you
-                         -- MemberJoin EdMembersJoin event to other, if other was already member
+                         -- we know: we are not in the conversation, but someone else is.
+                         --
+                         -- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+                         -- MemberJoin EdMembersJoin event to other, if only the other already was member before
                          conv'' <- acceptOne2One E usr conv' conn
                          if Data.convType conv'' == ConnectConv
-                           then--
-                           -- ConvConnect EdConnect event to self and other, if conversation type is connect and conversation only had other member
+                           then do
+                             -- we know: acceptOne2One didn't promote the conversation,
+                             -- thus we are the only member
+                             -- TODO: is this dead code???
+                             void $ error "dead code?"
+                             --
+                             -- ConvConnect EdConnect event to self, if conversation type is connect and conversation only had self as member
                              connect E n conv''
                            else return conv''
     -- ConvConnect EdConnect event to members, if conversation type is connect

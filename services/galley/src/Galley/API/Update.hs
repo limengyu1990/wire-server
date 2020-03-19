@@ -78,19 +78,19 @@ import Network.Wai
 import Network.Wai.Predicate hiding (_1, _2, failure, setStatus)
 import Network.Wai.Utilities
 
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
 acceptConvH :: E -> UserId ::: Maybe ConnId ::: ConvId -> Galley Response
 acceptConvH E (usr ::: conn ::: cnv) = do
   setStatus status200 . json <$> acceptConv E usr conn cnv
 
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
 acceptConv :: E -> UserId -> Maybe ConnId -> ConvId -> Galley Conversation
 acceptConv E usr conn cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
-  -- MemberJoin EdMembersJoin event to you
-  -- MemberJoin EdMembersJoin event to other, if other was already member
+  -- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+  -- MemberJoin EdMembersJoin event to other, if only the other already was member before
   conv' <- acceptOne2One E usr conv conn
   conversationView usr conv'
 

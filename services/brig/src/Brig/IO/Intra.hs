@@ -519,8 +519,8 @@ createConnectConv N from to cname mess conn = do
 
 -- | calls 'Galley.API.acceptConvH'
 --
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
 acceptConnectConv :: N -> UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
 acceptConnectConv N from conn cnv = do
   debug $

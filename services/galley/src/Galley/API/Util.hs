@@ -143,8 +143,8 @@ permissionCheckTeamConv zusr cnv perm = Data.conversation cnv >>= \case
 
 -- | Try to accept a 1-1 conversation, promoting connect conversations as appropriate.
 --
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if only the other already was member before
 acceptOne2One :: E -> UserId -> Data.Conversation -> Maybe ConnId -> Galley Data.Conversation
 acceptOne2One E usr conv conn = case Data.convType conv of
   One2OneConv ->
@@ -160,8 +160,10 @@ acceptOne2One E usr conv conn = case Data.convType conv of
     _ -> do
       when (length mems > 2) $
         throwM badConvState
+      -- we know now that there is one member so far
       now <- liftIO getCurrentTime
       (e, mm) <- Data.addMember now cid usr
+      -- if the other was already member, it's a complete One2OneConv now
       conv' <- if isJust (find ((usr /=) . memId) mems) then promote else pure conv
       -- members conv <> usr == usr and maybe other
       let mems' = mems <> toList mm
@@ -176,6 +178,7 @@ acceptOne2One E usr conv conn = case Data.convType conv of
     cid = Data.convId conv
     mems = Data.convMembers conv
     promote = do
+      -- updates connection type to One2OneConv
       Data.acceptConnect cid
       return $ conv {Data.convType = One2OneConv}
     badConvState =
