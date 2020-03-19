@@ -707,7 +707,7 @@ newMessage usr con cnv msg now (m, c, t) ~(toBots, toUsers) =
         Just b -> ((b, e) : toBots, toUsers)
         Nothing ->
           let p =
-                newPush (evtFrom e) (ConvEvent e) [undefined r]
+                newPush (evtFrom e) (ConvEvent e) [r]
                   <&> set pushConn con
                   . set pushNativePriority (newOtrNativePriority msg)
                   . set pushRoute (bool RouteDirect RouteAny (newOtrNativePush msg))
@@ -761,7 +761,7 @@ isTyping E zusr zcon cnv typingData = do
   now <- liftIO getCurrentTime
   let e = Event Typing cnv zusr now (Just $ EdTyping typingData)
   -- Typing EdTyping event to members
-  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> mm)) $ \p ->
+  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> mm)) $ \p ->
     push1 E $
       p
         & pushConn ?~ zcon
@@ -853,7 +853,7 @@ addToConversation E (bots, others) (usr, usrRole) conn xs c = do
   now <- liftIO getCurrentTime
   (e, mm) <- Data.addMembersWithRole now (Data.convId c) (usr, usrRole) mems
   -- MemberJoin EdMembersJoin event to members
-  for_ (newPush (evtFrom e) (ConvEvent e) (undefined . recipient <$> allMembers (toList mm))) $ \p ->
+  for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> allMembers (toList mm))) $ \p ->
     push1 E $ p & pushConn ?~ conn
   void . forkIO $ void $ External.deliver (bots `zip` repeat e)
   pure $ Updated e
