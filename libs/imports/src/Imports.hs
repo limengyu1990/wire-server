@@ -98,6 +98,7 @@ module Imports
     whenM,
     unlessM,
     E (..),
+    N (..),
   )
 where
 
@@ -222,6 +223,9 @@ import Prelude
 import qualified Prelude as P
 
 data E = E
+  deriving (Show, Eq)
+
+data N = N
   deriving (Show, Eq)
 
 ----------------------------------------------------------------------------

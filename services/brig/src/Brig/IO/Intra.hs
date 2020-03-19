@@ -496,8 +496,10 @@ createSelfConv u = do
         . expect2xx
 
 -- | calls 'Galley.API.createConnectConversationH'
-createConnectConv :: UserId -> UserId -> Maybe Text -> Maybe Message -> Maybe ConnId -> AppIO ConvId
-createConnectConv from to cname mess conn = do
+--
+-- TODO(mheinzel): see createConnectConversationH
+createConnectConv :: N -> UserId -> UserId -> Maybe Text -> Maybe Message -> Maybe ConnId -> AppIO ConvId
+createConnectConv N from to cname mess conn = do
   debug $
     Log.connection from to
       . remote "galley"
@@ -516,8 +518,11 @@ createConnectConv from to cname mess conn = do
         . expect2xx
 
 -- | calls 'Galley.API.acceptConvH'
-acceptConnectConv :: UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
-acceptConnectConv from conn cnv = do
+--
+-- MemberJoin EdMembersJoin event to you
+-- MemberJoin EdMembersJoin event to other, if other was already member
+acceptConnectConv :: N -> UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
+acceptConnectConv N from conn cnv = do
   debug $
     remote "galley"
       . field "conv" (toByteString cnv)
@@ -546,8 +551,11 @@ blockConv usr conn cnv = do
         . expect2xx
 
 -- | calls 'Galley.API.unblockConvH'
-unblockConv :: UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
-unblockConv usr conn cnv = do
+--
+-- MemberJoin EdMembersJoin event to you
+-- MemberJoin EdMembersJoin event to other, if other was already member
+unblockConv :: N -> UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
+unblockConv N usr conn cnv = do
   debug $
     remote "galley"
       . field "conv" (toByteString cnv)
@@ -598,8 +606,10 @@ getTeamConv usr tid cnv = do
 -- User management
 
 -- | calls 'Galley.API.rmUserH', as well as gundeck and cargohold
-rmUser :: UserId -> [Asset] -> AppIO ()
-rmUser usr asts = do
+--
+-- MemberLeave EdMembersLeave event to members for all conversations the user was in
+rmUser :: N -> UserId -> [Asset] -> AppIO ()
+rmUser N usr asts = do
   debug $
     remote "gundeck"
       . field "user" (toByteString usr)
