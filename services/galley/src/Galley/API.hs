@@ -877,11 +877,12 @@ sitemap = do
     zauthUserId
       .&. zauthConnId
       .&. jsonRequest @NewConvManaged
-  -- TODO: this is not quite right, especially with acceptOne2One
-  -- ConvCreate EdConversation event to self, if conversation did not exist before
-  -- ConvConnect EdConnect event to self, (unless conversation existed and is not connect conversation)
-  -- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
-  -- MemberJoin EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
+  -- if conversation did not exist before:
+  --   ConvCreate EdConversation event to self
+  -- if only the other already was member before:
+  --   MemberJoin EdMembersJoin event to you and other
+  -- if conversation already existed with two members (more precisely: not a connect conversation):
+  --   ConvConnect EdConnect event to self
   post "/i/conversations/connect" (continue (Create.createConnectConversationH E)) $
     zauthUserId
       .&. opt zauthConnId

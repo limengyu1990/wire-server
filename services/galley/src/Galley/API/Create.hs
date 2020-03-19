@@ -215,24 +215,30 @@ createOne2OneConversation E zusr zcon (NewConvUnmanaged j) = do
       notifyCreatedConversation E Nothing zusr (Just zcon) c
       conversationCreated zusr c
 
--- ConvCreate EdConversation event to self, if conversation did not exist before
--- ConvConnect EdConnect event to self, unless unless conversation existed and is not connect conversation
--- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
--- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
--- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
+-- if conversation did not exist before:
+--   ConvCreate EdConversation event to self
+-- if only the other already was member before:
+--   MemberJoin EdMembersJoin event to you and other
+-- if conversation already existed with two members (more precisely: not a connect conversation):
+--   ConvConnect EdConnect event to self
 createConnectConversationH :: E -> UserId ::: Maybe ConnId ::: JsonRequest Connect -> Galley Response
 createConnectConversationH E (usr ::: conn ::: req) = do
   j <- fromJsonBody req
   handleConversationResponse <$> createConnectConversation E usr conn j
 
--- TODO: this is all quite complicated, i.e.
+-- this is all quite complicated, i.e.
 -- - if the conversation type is One2OneConv, do we know there are two members?
+-- - similarly, ConnectConv means there is exactly one member?
 -- - if only self is in the connect conv already, should we send a ConvConnect event to ourselves? (seems like we do)
 --
--- ConvCreate EdConversation event to self, if conversation did not exist before
--- ConvConnect EdConnect event to self, unless unless conversation existed and is not connect conversation
--- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
--- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
+-- This information might not be 100% accurate, but these are my thoughts:
+--
+-- if conversation did not exist before:
+--   ConvCreate EdConversation event to self
+-- if only the other already was member before:
+--   MemberJoin EdMembersJoin event to you and other
+-- if conversation already existed with two members (more precisely: not a connect conversation):
+--   ConvConnect EdConnect event to self
 createConnectConversation :: E -> UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
 createConnectConversation E usr conn j = do
   (x, y) <- toUUIDs (makeIdOpaque usr) (makeIdOpaque (cRecipient j))
@@ -242,8 +248,7 @@ createConnectConversation E usr conn j = do
     -- ConvCreate EdConversation event to self, if conversation did not exist before
     -- ConvConnect EdConnect event to self, if conversation did not exist before
     (create x y n)
-    -- ConvConnect EdConnect event to self, if conversation existed and type is connect
-    -- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
+    -- ConvConnect EdConnect event to self, if other didn't already accept
     -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
     (update E n)
     conv
@@ -261,8 +266,8 @@ createConnectConversation E usr conn j = do
             & pushRoute .~ RouteDirect
             & pushConn .~ conn
       conversationCreated usr c
-    -- ConvConnect EdConnect event to self, if conversation type is connect (so if
-    -- ConvConnect EdConnect event to other, if conversation type is connect and other was already member
+    -- ConvConnect EdConnect event to self, if other didn't already accept
+    -- ConvConnect EdConnect event to other, never?  -- if conversation type is connect and other was already member
     -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
     update E n conv =
       let mems = Data.convMembers conv
