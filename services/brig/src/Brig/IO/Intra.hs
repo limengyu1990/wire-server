@@ -137,7 +137,7 @@ onClientEvent ::
   ClientEvent ->
   AppIO ()
 onClientEvent E orig conn e = do
-  let events = singleton (undefined e)
+  let events = singleton (ClientEvent e)
   let rcps = list1 orig []
   -- Synchronous push for better delivery guarantees of these
   -- events and to make sure new clients have a first notification
@@ -258,7 +258,7 @@ rawPush E (toList -> events) usrs orig route conn = do
         ( method POST
             . path "/i/push/v2"
             . zUser orig
-            . json (map (mkPush rcps . snd . undefined) events)
+            . json (map (mkPush rcps . snd) events)
             . expect2xx
         )
   where
