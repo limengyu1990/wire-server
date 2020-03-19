@@ -557,8 +557,8 @@ blockConv usr conn cnv = do
 
 -- | calls 'Galley.API.unblockConvH'
 --
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if only the other already was member before
 unblockConv :: N -> UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
 unblockConv N usr conn cnv = do
   debug $

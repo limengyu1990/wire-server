@@ -107,22 +107,22 @@ blockConv zusr cnv = do
   let mems = Data.convMembers conv
   when (makeIdOpaque zusr `isMember` mems) $ Data.removeMember zusr cnv
 
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if only the other already was member before
 unblockConvH :: E -> UserId ::: Maybe ConnId ::: ConvId -> Galley Response
 unblockConvH E (usr ::: conn ::: cnv) = do
   setStatus status200 . json <$> unblockConv E usr conn cnv
 
--- MemberJoin EdMembersJoin event to you
--- MemberJoin EdMembersJoin event to other, if other was already member
+-- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+-- MemberJoin EdMembersJoin event to other, if only the other already was member before
 unblockConv :: E -> UserId -> Maybe ConnId -> ConvId -> Galley Conversation
 unblockConv E usr conn cnv = do
   conv <- Data.conversation cnv >>= ifNothing convNotFound
   unless (Data.convType conv `elem` [ConnectConv, One2OneConv])
     $ throwM
     $ invalidOp "unblock: invalid conversation type"
-  -- MemberJoin EdMembersJoin event to you
-  -- MemberJoin EdMembersJoin event to other, if other was already member
+  -- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
+  -- MemberJoin EdMembersJoin event to other, if only the other already was member before
   conv' <- acceptOne2One E usr conv conn
   conversationView usr conv'
 
