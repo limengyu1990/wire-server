@@ -39,8 +39,7 @@ import Network.Wai.Utilities
 --
 -- See Note [managed conversations].
 --
--- notifies members
--- ConvCreate
+-- ConvCreate EdConversation event to members
 createGroupConversationH :: E -> UserId ::: ConnId ::: JsonRequest NewConvUnmanaged -> Galley Response
 createGroupConversationH E (zusr ::: zcon ::: req) = do
   newConv <- fromJsonBody req
@@ -221,46 +220,47 @@ createConnectConversationH E (usr ::: conn ::: req) = do
   j <- fromJsonBody req
   handleConversationResponse <$> createConnectConversation E usr conn j
 
--- TODO: figure out the logic
--- TODO: add event types
--- notifies self (and other, if they already created the connect conversation)
--- ConvCreate EdConversation event to members, if conversation gets created (did not already exist)
--- EdConnect event to self, if conversation gets created (did not already exist)
---
--- if conversation existed, but we are not member
+-- TODO: this is not quite right, especially with acceptOne2One
+-- ConvCreate EdConversation event to self, if conversation did not exist before
+-- ConvConnect EdConnect event to self, (unless conversation existed and is not connect conversation)
+-- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
+-- MemberJoin EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
 createConnectConversation :: E -> UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
-createConnectConversation () usr conn j = do
+createConnectConversation E usr conn j = do
   (x, y) <- toUUIDs (makeIdOpaque usr) (makeIdOpaque (cRecipient j))
   n <- rangeCheckedMaybe (cName j)
   conv <- Data.conversation (Data.one2OneConvId x y)
   maybe
-    -- ConvCreate EdConversation event to members, if conversation did not exist before
-    -- ConvConnect event to self, if conversation did not exist before
+    -- ConvCreate EdConversation event to self, if conversation did not exist before
+    -- ConvConnect EdConnect event to self, if conversation did not exist before
     (create x y n)
-    -- ConvConnect EdConnect event to self and other, if conversation existed and type is connect
-    -- EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
+    -- ConvConnect EdConnect event to self, if conversation existed and type is connect
+    -- ConvConnect EdConnect event to other, if conversation existed and type is connect and other was already member
+    -- MemberJoin EdMembersJoin event to you and other, if conversation existed and type is connect and only the other is already part of it
     (update E n)
     conv
   where
-    -- ConvCreate EdConversation event to members
+    -- ConvCreate EdConversation event to self
+    -- ConvConnect EdConnect event to self
     create x y n = do
       (c, e) <- Data.createConnectConversation x y n j
-      -- ConvCreate EdConversation event to members
+      -- ConvCreate EdConversation event to self
       notifyCreatedConversation E Nothing usr conn c
       for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> Data.convMembers c)) $ \p ->
-        -- EdConnect event to self TODO
+        -- ConvConnect EdConnect event to self
         push1 E $
           p
             & pushRoute .~ RouteDirect
             & pushConn .~ conn
       conversationCreated usr c
-    -- ConvConnect EdConnect event to self and other, if conversation type is connect
-    -- EdMembersJoin event to you and other, if conversation type is connect and only the other is already part of it
+    -- ConvConnect EdConnect event to self, if conversation type is connect
+    -- ConvConnect EdConnect event to other, if conversation type is connect and other was already member
+    -- MemberJoin EdMembersJoin event to you and other, if conversation type is connect and only the other is already part of it
     update E n conv =
       let mems = Data.convMembers conv
        in conversationExisted usr
             =<< if | makeIdOpaque usr `isMember` mems ->
-                     -- ConvConnect EdConnect event to self and other, if conversation type is connect
+                     -- ConvConnect EdConnect event to members, if conversation type is connect and self was already member
                      connect E n conv
                    | otherwise -> do
                      now <- liftIO getCurrentTime
@@ -270,18 +270,19 @@ createConnectConversation () usr conn j = do
                              { Data.convMembers = Data.convMembers conv <> toList mm
                              }
                      if null mems
-                       then--
-                       -- ConvConnect EdConnect event to self and other, if conversation type is connect
+                       then do
+                         -- ConvConnect EdConnect event to self, if conversation type is connect and conversation was empty
                          connect E n conv'
                        else do
-                         -- EdMembersJoin event to you and other, if it's a ConnectConv that had < 2 members
+                         -- MemberJoin EdMembersJoin event to you
+                         -- MemberJoin EdMembersJoin event to other, if other was already member
                          conv'' <- acceptOne2One E usr conv' conn
                          if Data.convType conv'' == ConnectConv
                            then--
-                           -- ConvConnect EdConnect event to self and other, if conversation type is connect
+                           -- ConvConnect EdConnect event to self and other, if conversation type is connect and conversation only had other member
                              connect E n conv''
                            else return conv''
-    -- ConvConnect EdConnect event to self and other, if conversation type is connect
+    -- ConvConnect EdConnect event to members, if conversation type is connect
     connect E n conv
       | Data.convType conv == ConnectConv = do
         n' <- case n of
@@ -292,7 +293,7 @@ createConnectConversation () usr conn j = do
         t <- liftIO getCurrentTime
         let e = Event ConvConnect (Data.convId conv) usr t (Just $ EdConnect j)
         for_ (newPush (evtFrom e) (ConvEvent e) (recipient <$> Data.convMembers conv)) $ \p ->
-          -- ConvConnect EdConnect event to self and other
+          -- ConvConnect EdConnect event to members
           push1 E $
             p
               & pushRoute .~ RouteDirect

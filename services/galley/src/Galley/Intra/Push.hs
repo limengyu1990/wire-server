@@ -151,15 +151,14 @@ push E ps = do
             & Gundeck.pushOriginConnection .~ _pushConn p
             & Gundeck.pushTransient .~ _pushTransient p
             & maybe id (set Gundeck.pushNativePriority) (_pushNativePriority p)
-            & const ()
-    toRecipient p (undefined -> r) =
+    toRecipient p r =
       Gundeck.recipient (_recipientUserId r) (_pushRoute p)
         & Gundeck.recipientClients .~ _recipientClients r
 
 -----------------------------------------------------------------------------
 -- Helpers
 
-gundeckReq :: [()] -> Galley (Request -> Request)
+gundeckReq :: [Gundeck.Push] -> Galley (Request -> Request)
 gundeckReq ps = do
   o <- view options
   return $

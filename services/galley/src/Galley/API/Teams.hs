@@ -195,8 +195,8 @@ updateTeam zusr zcon tid updateData = do
   membs <- Data.teamMembersUnsafeForLargeTeams tid
   let e = newEvent TeamUpdate tid now & eventData .~ Just (EdTeamUpdate updateData)
   let r = list1 (userRecipient zusr) (membersToRecipients (Just zusr) membs)
-  -- teams is out of scope for now
-  push1 $ newPush1 zusr (TeamEvent e) (undefined <$> r) & pushConn .~ Just zcon
+  -- FUTUREWORK: teams is out of scope for now
+  push1 E $ newPush1 zusr (TeamEvent e) r & pushConn .~ Just zcon
 
 deleteTeamH :: UserId ::: ConnId ::: TeamId ::: OptionalJsonRequest TeamDeleteData ::: JSON -> Galley Response
 deleteTeamH (zusr ::: zcon ::: tid ::: req ::: _) = do
@@ -259,14 +259,14 @@ uncheckedDeleteTeam zusr zcon tid = do
       let chunks = List.chunksOf chunkSize (toList r)
       forM_ chunks $ \chunk -> case chunk of
         [] -> return ()
-        -- push TeamDelete events
-        -- teams is out of scope for now
-        x : xs -> push1 (newPush1 zusr (TeamEvent e) (undefined <$> list1 x xs) & pushConn .~ zcon)
+        -- FUTUREWORK: teams is out of scope for now
+        x : xs -> push1 E (newPush1 zusr (TeamEvent e) (list1 x xs) & pushConn .~ zcon)
       -- To avoid DoS on gundeck, send conversation deletion events slowly
       let delay = 1000 * (fromMaybe defDeleteConvThrottleMillis (o ^. setDeleteConvThrottleMillis))
       forM_ ue $ \event -> do
         -- push ConversationDelete events
-        push1 event
+        -- FUTUREWORK: teams is out of scope for now
+        push1 E event
         threadDelay delay
     createConvDeleteEvents ::
       UTCTime ->
@@ -282,7 +282,7 @@ uncheckedDeleteTeam zusr zcon tid = do
       let mm = nonTeamMembers convMembs teamMembs
       let e = Conv.Event Conv.ConvDelete (c ^. conversationId) zusr now Nothing
       -- teams are out of scope for now
-      let p = newPush zusr (ConvEvent e) (map (undefined . recipient) mm)
+      let p = newPush zusr (ConvEvent e) (map (recipient) mm)
       let ee' = bots `zip` repeat e
       let pp' = maybe pp (\x -> (x & pushConn .~ zcon) : pp) p
       pure (pp', ee' ++ ee)
@@ -431,8 +431,9 @@ updateTeamMember zusr zcon tid targetMember = do
   let ePriv = newEvent MemberUpdate tid now & eventData ?~ privilegedUpdate
   -- push to all members (user is privileged)
   -- teams are out of scope for now
-  let pushPriv = newPush zusr (TeamEvent ePriv) $ undefined <$> privilegedRecipients
-  for_ pushPriv $ \p -> push1 $ p & pushConn .~ Just zcon
+  let pushPriv = newPush zusr (TeamEvent ePriv) $ privilegedRecipients
+  -- FUTUREWORK: teams is out of scope for now
+  for_ pushPriv $ \p -> push1 E $ p & pushConn .~ Just zcon
 
 deleteTeamMemberH :: UserId ::: ConnId ::: TeamId ::: UserId ::: OptionalJsonRequest TeamMemberDeleteData ::: JSON -> Galley Response
 deleteTeamMemberH (zusr ::: zcon ::: tid ::: remove ::: req ::: _) = do
@@ -475,8 +476,8 @@ uncheckedRemoveTeamMember zusr zcon tid remove mems = do
   now <- liftIO getCurrentTime
   let e = newEvent MemberLeave tid now & eventData .~ Just (EdMemberLeave remove)
   let r = list1 (userRecipient zusr) (membersToRecipients (Just zusr) mems)
-  -- teams are out of scope for now
-  push1 $ newPush1 zusr (TeamEvent e) (undefined <$> r) & pushConn .~ zcon
+  -- FUTUREWORK: teams is out of scope for now
+  push1 E $ newPush1 zusr (TeamEvent e) (r) & pushConn .~ zcon
   Data.removeTeamMember tid remove
   let tmids = Set.fromList $ map (view userId) mems
   let edata = Conv.EdMembersLeave (Conv.UserIdList [remove])
@@ -491,9 +492,9 @@ uncheckedRemoveTeamMember zusr zcon tid remove mems = do
       let (bots, users) = botsAndUsers (Data.convMembers dc)
       let x = filter (\m -> not (Conv.memId m `Set.member` tmids)) users
       let y = Conv.Event Conv.MemberLeave (Data.convId dc) zusr now (Just edata)
-      -- teams are out of scope for now
-      for_ (newPush zusr (ConvEvent y) (undefined . recipient <$> x)) $ \p ->
-        push1 $ p & pushConn .~ zcon
+      for_ (newPush zusr (ConvEvent y) (recipient <$> x)) $ \p ->
+        -- FUTUREWORK: teams is out of scope for now
+        push1 E $ p & pushConn .~ zcon
       void . forkIO $ void $ External.deliver (bots `zip` repeat y)
 
 getTeamConversationsH :: UserId ::: TeamId ::: JSON -> Galley Response
@@ -531,9 +532,9 @@ deleteTeamConversation zusr zcon tid cid = do
   now <- liftIO getCurrentTime
   let ce = Conv.Event Conv.ConvDelete cid zusr now Nothing
   let recps = fmap recipient cmems
-  -- teams are out of scope for now
-  let convPush = newPush zusr (ConvEvent ce) (undefined <$> recps) <&> pushConn .~ Just zcon
-  pushSome $ maybeToList convPush
+  let convPush = newPush zusr (ConvEvent ce) (recps) <&> pushConn .~ Just zcon
+  -- FUTUREWORK: teams is out of scope for now
+  pushSome E $ maybeToList convPush
   void . forkIO $ void $ External.deliver (bots `zip` repeat ce)
   -- TODO: we don't delete bots here, but we should do that, since every
   -- bot user can only be in a single conversation
@@ -611,8 +612,8 @@ addTeamMemberInternal tid origin originConn newMem mems = do
   for_ cc $ \c ->
     Data.addMember now (c ^. conversationId) (new ^. userId)
   let e = newEvent MemberJoin tid now & eventData .~ Just (EdMemberJoin (new ^. userId))
-  -- teams are out of scope for now
-  push1 $ newPush1 (new ^. userId) (TeamEvent e) (undefined <$> r origin new) & pushConn .~ originConn
+  -- FUTUREWORK: teams is out of scope for now
+  push1 E $ newPush1 (new ^. userId) (TeamEvent e) (r origin new) & pushConn .~ originConn
   where
     r (Just o) n = list1 (userRecipient o) (membersToRecipients (Just o) (n : mems))
     r Nothing n = list1 (userRecipient (n ^. userId)) (membersToRecipients Nothing (n : mems))
@@ -625,8 +626,8 @@ finishCreateTeam team owner others zcon = do
   now <- liftIO getCurrentTime
   let e = newEvent TeamCreate (team ^. teamId) now & eventData .~ Just (EdTeamCreate team)
   let r = membersToRecipients Nothing others
-  -- teams are out of scope for now
-  push1 $ newPush1 zusr (TeamEvent e) (undefined <$> list1 (userRecipient zusr) r) & pushConn .~ zcon
+  -- FUTUREWORK: teams is out of scope for now
+  push1 E $ newPush1 zusr (TeamEvent e) (list1 (userRecipient zusr) r) & pushConn .~ zcon
   pure (team ^. teamId)
 
 withBindingTeam :: UserId -> (TeamId -> Galley b) -> Galley b
