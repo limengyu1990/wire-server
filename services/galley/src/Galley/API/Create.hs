@@ -224,17 +224,14 @@ createConnectConversationH E (usr ::: conn ::: req) = do
 -- this is all quite complicated, i.e.
 -- - if the conversation type is One2OneConv, do we know there are two members?
 -- - similarly, ConnectConv means there is exactly one member?
--- - if only self is in the connect conv already, should we send a ConvConnect event to ourselves? (seems like we do)
+-- - if only self is in the connect conv already, should we send a ConvConnect event to ourselves? (seems like that's what we do)
 --
--- TODO(createConnectConversation)
 -- This information might not be 100% accurate, but these are my thoughts:
 --
 -- if conversation did not exist before:
 --   ConvCreate EdConversation event to self
---   ConvConnect EdConnect event to self, if conversation did not exist before
--- if only the other already was member before:
---   MemberJoin EdMembersJoin event to you and other
--- if conversation already existed with two members (more precisely: not a connect conversation):
+--   ConvConnect EdConnect event to self
+-- if conversation existed, but other didn't join/accept yet;
 --   ConvConnect EdConnect event to self
 createConnectConversation :: E -> UserId -> Maybe ConnId -> Connect -> Galley ConversationResponse
 createConnectConversation E usr conn j = do
@@ -246,7 +243,6 @@ createConnectConversation E usr conn j = do
     -- ConvConnect EdConnect event to self, if conversation did not exist before
     (create x y n)
     -- ConvConnect EdConnect event to self, if other didn't already accept
-    -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
     (update E n)
     conv
   where
@@ -264,8 +260,7 @@ createConnectConversation E usr conn j = do
             & pushConn .~ conn
       conversationCreated usr c
     -- ConvConnect EdConnect event to self, if other didn't already accept
-    -- ConvConnect EdConnect event to other, never?  -- if conversation type is connect and other was already member
-    -- MemberJoin EdMembersJoin event to you and other, if only the other already was member before
+    -- NEVER? ConvConnect EdConnect event to other, if conversation type is connect and other was already member
     update E n conv =
       let mems = Data.convMembers conv
        in conversationExisted usr
@@ -276,7 +271,9 @@ createConnectConversation E usr conn j = do
                      -- (so, only if we are the only member???)
                      connect E n conv
                    | otherwise -> do
+                     -- we know: we are not in the conversation, maybe other
                      now <- liftIO getCurrentTime
+                     -- new members
                      mm <- snd <$> Data.addMember now (Data.convId conv) usr
                      let conv' =
                            conv
@@ -290,15 +287,17 @@ createConnectConversation E usr conn j = do
                          -- ConvConnect EdConnect event to self, if conversation type is connect and conversation was empty
                          connect E n conv'
                        else do
-                         -- we know: we are not in the conversation, but someone else is.
+                         -- we know: we were not in the conversation, but someone else.
                          --
-                         -- MemberJoin EdMembersJoin event to you, if the conversation had < 2 members before
-                         -- MemberJoin EdMembersJoin event to other, if only the other already was member before
+                         -- these events can NOT happen here:
+                         -- MemberJoin EdMembersJoin event to you, if the conversation has < 2 members (thus, if no-one else was in it before, as conv' already contains self, but that can't be true)
+                         -- MemberJoin EdMembersJoin event to other, if only the other already is member (cannot be true, conv' already contains self!)
                          conv'' <- acceptOne2One E usr conv' conn
                          if Data.convType conv'' == ConnectConv
                            then do
                              -- we know: acceptOne2One didn't promote the conversation,
-                             -- thus we are the only member
+                             -- thus there was no existing other user in it,
+                             -- thus we are the only member.
                              -- TODO: is this dead code???
                              void $ error "dead code?"
                              --
