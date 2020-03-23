@@ -764,8 +764,9 @@ mkPasswordResetKey ident = case ident of
 -- TODO: communicate deletions of SSO users to SSO service.
 --
 -- UserDeleted event to contacts
-deleteUser :: E -> UserId -> Maybe PlainTextPassword -> ExceptT DeleteUserError AppIO (Maybe Timeout)
-deleteUser E uid pwd = do
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteUser :: N -> E -> UserId -> Maybe PlainTextPassword -> ExceptT DeleteUserError AppIO (Maybe Timeout)
+deleteUser N E uid pwd = do
   account <- lift $ Data.lookupAccount uid
   case account of
     Nothing -> throwE DeleteUserInvalid
@@ -785,6 +786,8 @@ deleteUser E uid pwd = do
           Team.IsOneOfManyTeamOwnersWithEmail -> pure ()
           Team.IsTeamOwnerWithoutEmail -> pure ()
           Team.IsNotTeamOwner -> pure ()
+    -- UserDeleted event to contacts
+    -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
     go a = maybe (byIdentity a) (byPassword a) pwd
     getEmailOrPhone :: UserIdentity -> Maybe (Either Email Phone)
     getEmailOrPhone (FullIdentity e _) = Just $ Left e
@@ -798,7 +801,8 @@ deleteUser E uid pwd = do
       Nothing -> case pwd of
         Just _ -> throwE DeleteUserMissingPassword
         -- UserDeleted event to contacts
-        Nothing -> lift $ deleteAccount E a >> return Nothing
+        -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+        Nothing -> lift $ deleteAccount N E a >> return Nothing
     byPassword a pw = do
       Log.info $
         field "user" (toByteString uid)
@@ -810,7 +814,8 @@ deleteUser E uid pwd = do
           unless (verifyPassword pw p) $
             throwE DeleteUserInvalidPassword
           -- UserDeleted event to contacts
-          lift $ deleteAccount E a >> return Nothing
+          -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+          lift $ deleteAccount N E a >> return Nothing
     sendCode a target = do
       gen <- Code.mkGen (either Code.ForEmail Code.ForPhone target)
       pending <- lift $ Code.lookup (Code.genKey gen) Code.AccountDeletion
@@ -843,15 +848,17 @@ deleteUser E uid pwd = do
 -- 'deleteUser'.  Called via @post /delete@.
 --
 -- UserDeleted event to contacts
-verifyDeleteUser :: E -> VerifyDeleteUser -> ExceptT DeleteUserError AppIO ()
-verifyDeleteUser E d = do
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+verifyDeleteUser :: N -> E -> VerifyDeleteUser -> ExceptT DeleteUserError AppIO ()
+verifyDeleteUser N E d = do
   let key = verifyDeleteUserKey d
   let code = verifyDeleteUserCode d
   c <- lift $ Code.verify key Code.AccountDeletion code
   a <- maybe (throwE DeleteUserInvalidCode) return (Code.codeAccount =<< c)
   account <- lift $ Data.lookupAccount (Id a)
   -- UserDeleted event to contacts
-  for_ account $ lift . deleteAccount E
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  for_ account $ lift . deleteAccount N E
   lift $ Code.delete key Code.AccountDeletion
 
 -- | Internal deletion without validation.  Called via @delete /i/user/:uid@.  Team users can be
@@ -859,8 +866,9 @@ verifyDeleteUser E d = do
 -- in the team.
 --
 -- UserDeleted event to contacts
-deleteAccount :: E -> UserAccount -> AppIO ()
-deleteAccount E account@(accountUser -> user) = do
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteAccount :: N -> E -> UserAccount -> AppIO ()
+deleteAccount N E account@(accountUser -> user) = do
   let uid = userId user
   Log.info $ field "user" (toByteString uid) . msg (val "Deleting account")
   -- Free unique keys
@@ -871,7 +879,8 @@ deleteAccount E account@(accountUser -> user) = do
   Data.clearProperties uid
   tombstone <- mkTombstone
   Data.insertAccount tombstone Nothing Nothing False (SearchableStatus False)
-  Intra.rmUser uid (userAssets user)
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  Intra.rmUser N uid (userAssets user)
   Data.lookupClients uid >>= mapM_ (Data.rmClient uid . clientId)
   -- UserDeleted event to contacts
   Intra.onUserEvent E uid Nothing (UserDeleted uid)
@@ -918,31 +927,40 @@ lookupPasswordResetCode emailOrPhone = do
       c <- Data.lookupPasswordResetCode u
       return $ (k,) <$> c
 
--- UserDeleted event to contacts, when internal event is handled asynchronously
-deleteUserNoVerify :: E -> UserId -> AppIO ()
-deleteUserNoVerify E uid = do
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteUserNoVerify :: N -> E -> UserId -> AppIO ()
+deleteUserNoVerify N E uid = do
   queue <- view internalEvents
   -- UserDeleted event to contacts, when event is handled
-  Queue.enqueue queue (Internal.DeleteUser E uid)
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  Queue.enqueue queue (Internal.DeleteUser N E uid)
 
 -- | Garbage collect users if they're ephemeral and they have expired.
 -- Always returns the user (deletion itself is delayed)
 --
--- UserDeleted event to contacts of deleted users, when internal event is handled asynchronously
-userGC :: E -> User -> AppIO User
-userGC E u = case (userExpire u) of
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+userGC :: N -> E -> User -> AppIO User
+userGC N E u = case (userExpire u) of
   Nothing -> return u
   (Just (fromUTCTimeMillis -> e)) -> do
     now <- liftIO =<< view currentTime
     -- ephemeral users past their expiry date are deleted
     when (diffUTCTime e now < 0) $
-      -- UserDeleted event to contacts, when internal event is handled asynchronously
-      deleteUserNoVerify E (userId u)
+      -- when internal event is handled asynchronously:
+      --   UserDeleted event to contacts
+      --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+      deleteUserNoVerify N E (userId u)
     return u
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-lookupProfile :: E -> UserId -> UserId -> AppIO (Maybe UserProfile)
-lookupProfile E self other = listToMaybe <$> lookupProfiles E self [other]
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+lookupProfile :: N -> E -> UserId -> UserId -> AppIO (Maybe UserProfile)
+lookupProfile N E self other = listToMaybe <$> lookupProfiles N E self [other]
 
 -- | Obtain user profiles for a list of users as they can be seen by
 -- a given user 'self'. User 'self' can see the 'FullProfile' of any other user 'other',
@@ -950,17 +968,22 @@ lookupProfile E self other = listToMaybe <$> lookupProfiles E self [other]
 -- Otherwise only the 'PublicProfile' is accessible for user 'self'.
 -- If 'self' is an unknown 'UserId', return '[]'.
 --
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
 lookupProfiles ::
+  N ->
   E ->
   -- | User 'self' on whose behalf the profiles are requested.
   UserId ->
   -- | The users ('others') for which to obtain the profiles.
   [UserId] ->
   AppIO [UserProfile]
-lookupProfiles E self others = do
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  users <- Data.lookupUsers others >>= mapM (userGC E)
+lookupProfiles N E self others = do
+  -- when internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  users <- Data.lookupUsers others >>= mapM (userGC N E)
   css <- toMap <$> Data.lookupConnectionStatus (map userId users) [self]
   emailVisibility' <- view (settings . emailVisibility)
   emailVisibility'' <- case emailVisibility' of

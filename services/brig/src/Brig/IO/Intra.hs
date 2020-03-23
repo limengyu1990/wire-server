@@ -609,7 +609,7 @@ getTeamConv usr tid cnv = do
 
 -- | calls 'Galley.API.rmUserH', as well as gundeck and cargohold
 --
--- MemberLeave EdMembersLeave event to members for all conversations the user was in
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
 rmUser :: N -> UserId -> [Asset] -> AppIO ()
 rmUser N usr asts = do
   debug $

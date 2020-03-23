@@ -89,8 +89,10 @@ sitemap o = do
   put "/i/self/email" (continue changeSelfEmailNoSendH) $
     header "Z-User"
       .&. jsonRequest @EmailUpdate
-  -- UserDeleted event to contacts, when internal event is handled asynchronously
-  delete "/i/users/:uid" (continue (deleteUserNoVerifyH E)) $
+  -- when internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  delete "/i/users/:uid" (continue (deleteUserNoVerifyH N E)) $
     capture "uid"
   get "/i/users/connections-status" (continue deprecatedGetConnectionsStatusH) $
     query "users"
@@ -191,8 +193,10 @@ sitemap o = do
       .&. query "base_url"
   ---
 
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  head "/users/:uid" (continue (checkUserExistsH E)) $
+  -- if the user is expired, an internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  head "/users/:uid" (continue (checkUserExistsH N E)) $
     header "Z-User"
       .&. capture "uid"
   document "HEAD" "userExists" $ do
@@ -203,8 +207,10 @@ sitemap o = do
     Doc.errorResponse userNotFound
   ---
 
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  get "/users/:uid" (continue (getUserH E)) $
+  -- if the user is expired, an internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  get "/users/:uid" (continue (getUserH N E)) $
     accept "application" "json"
       .&. header "Z-User"
       .&. capture "uid"
@@ -250,8 +256,10 @@ sitemap o = do
     Doc.errorResponse handleNotFound
   ---
 
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  get "/users" (continue (listUsersH E)) $
+  -- if the user is expired, an internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  get "/users" (continue (listUsersH N E)) $
     accept "application" "json"
       .&. header "Z-User"
       .&. (param "ids" ||| param "handles")
@@ -482,7 +490,8 @@ sitemap o = do
   ---
 
   -- UserDeleted event to contacts
-  delete "/self" (continue (deleteUserH E)) $
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  delete "/self" (continue (deleteUserH N E)) $
     header "Z-User"
       .&. jsonRequest @DeleteUser
       .&. accept "application" "json"
@@ -504,7 +513,8 @@ sitemap o = do
   ---
 
   -- UserDeleted event to contacts
-  post "/delete" (continue (verifyDeleteUserH E)) $
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  post "/delete" (continue (verifyDeleteUserH N E)) $
     jsonRequest @VerifyDeleteUser
       .&. accept "application" "json"
   document "POST" "verifyDeleteUser" $ do
@@ -1204,32 +1214,44 @@ createUserNoVerify E uData = do
         API.activate E key code (Just uid) !>> actError
   return $ CreateUserNoVerifyResponse uid (SelfProfile usr)
 
--- UserDeleted event to contacts, when internal event is handled asynchronously
-deleteUserNoVerifyH :: E -> UserId -> Handler Response
-deleteUserNoVerifyH E uid = do
-  setStatus status202 empty <$ deleteUserNoVerify E uid
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteUserNoVerifyH :: N -> E -> UserId -> Handler Response
+deleteUserNoVerifyH N E uid = do
+  setStatus status202 empty <$ deleteUserNoVerify N E uid
 
--- UserDeleted event to contacts, when internal event is handled asynchronously
-deleteUserNoVerify :: E -> UserId -> Handler ()
-deleteUserNoVerify E uid = do
+-- when internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteUserNoVerify :: N -> E -> UserId -> Handler ()
+deleteUserNoVerify N E uid = do
   void $ lift (API.lookupAccount uid) >>= ifNothing userNotFound
-  -- UserDeleted event to contacts, when internal event is handled asynchronously
-  lift $ API.deleteUserNoVerify E uid
+  -- when internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  lift $ API.deleteUserNoVerify N E uid
 
 changeSelfEmailNoSendH :: UserId ::: JsonRequest EmailUpdate -> Handler Response
 changeSelfEmailNoSendH (u ::: req) = changeEmail u req False
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-checkUserExistsH :: E -> UserId ::: UserId -> Handler Response
-checkUserExistsH E (self ::: uid) = do
-  exists <- lift $ checkUserExists E self uid
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+checkUserExistsH :: N -> E -> UserId ::: UserId -> Handler Response
+checkUserExistsH N E (self ::: uid) = do
+  exists <- lift $ checkUserExists N E self uid
   if exists then return empty else throwStd userNotFound
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-checkUserExists :: E -> UserId -> UserId -> AppIO Bool
-checkUserExists E self uid = do
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  isJust <$> API.lookupProfile E self uid
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+checkUserExists :: N -> E -> UserId -> UserId -> AppIO Bool
+checkUserExists N E self uid = do
+  -- when internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  isJust <$> API.lookupProfile N E self uid
 
 getSelfH :: JSON ::: UserId -> Handler Response
 getSelfH (_ ::: self) = do
@@ -1239,16 +1261,22 @@ getSelf :: UserId -> Handler SelfProfile
 getSelf self = do
   lift (API.lookupSelfProfile self) >>= ifNothing userNotFound
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-getUserH :: E -> JSON ::: UserId ::: UserId -> Handler Response
-getUserH E (_ ::: self ::: uid) = do
-  json <$> getUser E self uid
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+getUserH :: N -> E -> JSON ::: UserId ::: UserId -> Handler Response
+getUserH N E (_ ::: self ::: uid) = do
+  json <$> getUser N E self uid
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-getUser :: E -> UserId -> UserId -> Handler UserProfile
-getUser E self uid = do
-  -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-  lift (API.lookupProfile E self uid) >>= ifNothing userNotFound
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+getUser :: N -> E -> UserId -> UserId -> Handler UserProfile
+getUser N E self uid = do
+  -- if the user is expired, an internal event is handled asynchronously:
+  --   UserDeleted event to contacts
+  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  lift (API.lookupProfile N E self uid) >>= ifNothing userNotFound
 
 getUserNameH :: JSON ::: UserId -> Handler Response
 getUserNameH (_ ::: self) = do
@@ -1257,28 +1285,32 @@ getUserNameH (_ ::: self) = do
     Just n -> json $ object ["name" .= n]
     Nothing -> setStatus status404 empty
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-listUsersH :: E -> JSON ::: UserId ::: Either (List UserId) (List Handle) -> Handler Response
-listUsersH E (_ ::: self ::: qry) =
-  toResponse <$> listUsers E self qry
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+listUsersH :: N -> E -> JSON ::: UserId ::: Either (List UserId) (List Handle) -> Handler Response
+listUsersH N E (_ ::: self ::: qry) =
+  toResponse <$> listUsers N E self qry
   where
     toResponse = \case
       [] -> setStatus status404 empty
       ps -> json ps
 
--- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-listUsers :: E -> UserId -> Either (List UserId) (List Handle) -> Handler [UserProfile]
-listUsers E self = \case
+-- if the user is expired, an internal event is handled asynchronously:
+--   UserDeleted event to contacts
+--   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+listUsers :: N -> E -> UserId -> Either (List UserId) (List Handle) -> Handler [UserProfile]
+listUsers N E self = \case
   Left us ->
     -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-    byIds E (fromList us)
+    byIds N E (fromList us)
   Right hs -> do
     us <- catMaybes <$> mapM (lift . API.lookupHandle) (fromList hs)
     sameTeamSearchOnly <- fromMaybe False <$> view (settings . searchSameTeamOnly)
     -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
     if sameTeamSearchOnly
-      then sameTeamOnly =<< byIds E us
-      else byIds E us
+      then sameTeamOnly =<< byIds N E us
+      else byIds N E us
   where
     sameTeamOnly :: [UserProfile] -> Handler [UserProfile]
     sameTeamOnly us = do
@@ -1286,8 +1318,10 @@ listUsers E self = \case
       return $ case selfTeam of
         Just team -> filter (\x -> profileTeam x == Just team) us
         Nothing -> us
-    -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-    byIds E uids = lift $ API.lookupProfiles E self uids
+    -- if the user is expired, an internal event is handled asynchronously:
+    --   UserDeleted event to contacts
+    --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+    byIds N E uids = lift $ API.lookupProfiles N E self uids
 
 listActivatedAccountsH :: JSON ::: Either (List UserId) (List Handle) -> Handler Response
 listActivatedAccountsH (_ ::: qry) = do
@@ -1648,21 +1682,25 @@ updateRichInfo uid rup = do
 -- Intra.onUserEvent uid (Just conn) (richInfoUpdate uid ri)
 
 -- UserDeleted event to contacts
-deleteUserH :: E -> UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
-deleteUserH E (u ::: r ::: _) = do
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+deleteUserH :: N -> E -> UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
+deleteUserH N E (u ::: r ::: _) = do
   body <- parseJsonBody r
   -- UserDeleted event to contacts
-  res <- API.deleteUser E u (deleteUserPassword body) !>> deleteUserError
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  res <- API.deleteUser N E u (deleteUserPassword body) !>> deleteUserError
   return $ case res of
     Nothing -> setStatus status200 empty
     Just ttl -> setStatus status202 (json (DeletionCodeTimeout ttl))
 
 -- UserDeleted event to contacts
-verifyDeleteUserH :: E -> JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
-verifyDeleteUserH E (r ::: _) = do
+-- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+verifyDeleteUserH :: N -> E -> JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
+verifyDeleteUserH N E (r ::: _) = do
   body <- parseJsonBody r
   -- UserDeleted event to contacts
-  API.verifyDeleteUser E body !>> deleteUserError
+  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+  API.verifyDeleteUser N E body !>> deleteUserError
   return (setStatus status200 empty)
 
 getContactListH :: JSON ::: UserId -> Handler Response
