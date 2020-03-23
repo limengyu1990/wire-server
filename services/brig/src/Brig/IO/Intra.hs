@@ -497,12 +497,7 @@ createSelfConv u = do
 
 -- | calls 'Galley.API.createConnectConversationH'
 --
--- if conversation did not exist before:
---   ConvCreate EdConversation event to self
--- if only the other already was member before:
---   MemberJoin EdMembersJoin event to you and other
--- if conversation already existed with two members (more precisely: not a connect conversation):
---   ConvConnect EdConnect event to self
+-- TODO(createConnectConversation)
 createConnectConv :: N -> UserId -> UserId -> Maybe Text -> Maybe Message -> Maybe ConnId -> AppIO ConvId
 createConnectConv N from to cname mess conn = do
   debug $
@@ -524,8 +519,10 @@ createConnectConv N from to cname mess conn = do
 
 -- | calls 'Galley.API.acceptConvH'
 --
--- MemberJoin EdMembersJoin event to you, if the conversation existed and had < 2 members before
--- MemberJoin EdMembersJoin event to other, if the conversation existed and only the other already was member before
+-- if the conversation existed and had < 2 members before
+--   via galley: MemberJoin EdMembersJoin event to you
+-- if the conversation existed and only the other already was member before
+--   via galley: MemberJoin EdMembersJoin event to other
 acceptConnectConv :: N -> UserId -> Maybe ConnId -> ConvId -> AppIO Conversation
 acceptConnectConv N from conn cnv = do
   debug $

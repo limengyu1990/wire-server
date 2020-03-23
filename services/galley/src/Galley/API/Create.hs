@@ -215,12 +215,7 @@ createOne2OneConversation E zusr zcon (NewConvUnmanaged j) = do
       notifyCreatedConversation E Nothing zusr (Just zcon) c
       conversationCreated zusr c
 
--- if conversation did not exist before:
---   ConvCreate EdConversation event to self
--- if only the other already was member before:
---   MemberJoin EdMembersJoin event to you and other
--- if conversation already existed with two members (more precisely: not a connect conversation):
---   ConvConnect EdConnect event to self
+-- TODO(createConnectConversation)
 createConnectConversationH :: E -> UserId ::: Maybe ConnId ::: JsonRequest Connect -> Galley Response
 createConnectConversationH E (usr ::: conn ::: req) = do
   j <- fromJsonBody req
@@ -231,10 +226,12 @@ createConnectConversationH E (usr ::: conn ::: req) = do
 -- - similarly, ConnectConv means there is exactly one member?
 -- - if only self is in the connect conv already, should we send a ConvConnect event to ourselves? (seems like we do)
 --
+-- TODO(createConnectConversation)
 -- This information might not be 100% accurate, but these are my thoughts:
 --
 -- if conversation did not exist before:
 --   ConvCreate EdConversation event to self
+--   ConvConnect EdConnect event to self, if conversation did not exist before
 -- if only the other already was member before:
 --   MemberJoin EdMembersJoin event to you and other
 -- if conversation already existed with two members (more precisely: not a connect conversation):

@@ -38,15 +38,23 @@ import Imports
 import qualified System.Logger.Class as Log
 import System.Logger.Message
 
--- ConnectionUpdated event to self, unless both states already exist and any state is blocked or both already accepted
--- ConnectionUpdated event to other, unless both states already exist and any state is blocked or both already accepted
+-- ConnectionUpdated event to self and other, unless both states already exist and any state is blocked or both already accepted
+--
+-- potentially can cause events to be sent from Galley:
+-- if the other already was member of connect conversation and has connection status Sent or Accepted:
+--   via galley: MemberJoin EdMembersJoin event to you
+--   via galley: MemberJoin EdMembersJoin event to other
+--
+-- TODO(createConnectConversation)
+-- for details check 'Galley.API.Create.createConnectConversation'.
 createConnection ::
+  N ->
   E ->
   UserId ->
   ConnectionRequest ->
   ConnId ->
   ExceptT ConnectionError AppIO ConnectionResult
-createConnection E self ConnectionRequest {..} conn = do
+createConnection N E self ConnectionRequest {..} conn = do
   when (self == crUser)
     $ throwE
     $ InvalidUser crUser
@@ -64,24 +72,32 @@ createConnection E self ConnectionRequest {..} conn = do
     throwE ConnectSameBindingTeamUsers
   s2o <- lift $ Data.lookupConnection self crUser
   o2s <- lift $ Data.lookupConnection crUser self
-  case update E <$> s2o <*> o2s of
+  case update N E <$> s2o <*> o2s of
     Just rs ->
       -- ConnectionUpdated event to self, unless any state is blocked or both already accepted
       -- ConnectionUpdated event to other, unless any state is blocked or both already accepted
+      -- if only the other already was member of connect conversation before and has status Sent or Accepted:
+      --   via galley: MemberJoin EdMembersJoin event to you
+      --   via galley: MemberJoin EdMembersJoin event to other
       rs
     Nothing -> do
       checkLimit self
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
+      --
+      -- TODO(createConnectConversation)
       ConnectionCreated <$> insert E Nothing Nothing
   where
     -- ConnectionUpdated event to self
     -- ConnectionUpdated event to other
+    --
+    -- TODO(createConnectConversation)
     insert E s2o o2s = lift $ do
       Log.info $
         Log.connection self crUser
           . msg (val "Creating connection")
-      cnv <- Intra.createConnectConv self crUser (Just crName) (Just crMessage) (Just conn)
+      -- TODO(createConnectConversation)
+      cnv <- Intra.createConnectConv N self crUser (Just crName) (Just crMessage) (Just conn)
       s2o' <- Data.insertConnection self crUser Sent (Just crMessage) cnv
       o2s' <- Data.insertConnection crUser self Pending (Just crMessage) cnv
       e2o <- ConnectionUpdated o2s' (ucStatus <$> o2s) <$> Data.lookupName self
@@ -92,7 +108,10 @@ createConnection E self ConnectionRequest {..} conn = do
       return s2o'
     -- ConnectionUpdated event to self, unless any state is blocked or both already accepted
     -- ConnectionUpdated event to other, unless any state is blocked or both already accepted
-    update E s2o o2s = case (ucStatus s2o, ucStatus o2s) of
+    -- if only the other already was member of connect conversation before and has status Sent or Accepted:
+    --   via galley: MemberJoin EdMembersJoin event to you
+    --   via galley: MemberJoin EdMembersJoin event to other
+    update N E s2o o2s = case (ucStatus s2o, ucStatus o2s) of
       (Accepted, Accepted) -> return $ ConnectionExists s2o
       (Accepted, Blocked) -> return $ ConnectionExists s2o
       (Sent, Blocked) -> return $ ConnectionExists s2o
@@ -100,8 +119,12 @@ createConnection E self ConnectionRequest {..} conn = do
       (_, Blocked) -> change s2o Sent
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
-      (_, Sent) -> accept E s2o o2s
-      (_, Accepted) -> accept E s2o o2s
+      -- if the conversation existed and had < 2 members before
+      --   via galley: MemberJoin EdMembersJoin event to you
+      -- if the conversation existed and only the other already was member before
+      --   via galley: MemberJoin EdMembersJoin event to other
+      (_, Sent) -> accept N E s2o o2s
+      (_, Accepted) -> accept N E s2o o2s
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
       (_, Ignored) -> resend E s2o o2s
@@ -109,13 +132,21 @@ createConnection E self ConnectionRequest {..} conn = do
       (_, Cancelled) -> resend E s2o o2s
     -- ConnectionUpdated event to self
     -- ConnectionUpdated event to other
-    accept E s2o o2s = do
+    -- if the conversation existed and had < 2 members before
+    --   via galley: MemberJoin EdMembersJoin event to you
+    -- if the conversation existed and only the other already was member before
+    --   via galley: MemberJoin EdMembersJoin event to other
+    accept N E s2o o2s = do
       when (ucStatus s2o `notElem` [Sent, Accepted]) $
         checkLimit self
       Log.info $
         Log.connection self (ucTo s2o)
           . msg (val "Accepting connection")
-      cnv <- lift $ for (ucConvId s2o) $ Intra.acceptConnectConv self (Just conn)
+      -- if the conversation existed and had < 2 members before
+      --   via galley: MemberJoin EdMembersJoin event to you
+      -- if the conversation existed and only the other already was member before
+      --   via galley: MemberJoin EdMembersJoin event to other
+      cnv <- lift $ for (ucConvId s2o) $ Intra.acceptConnectConv N self (Just conn)
       s2o' <- lift $ Data.updateConnection s2o Accepted
       o2s' <-
         lift $
@@ -217,7 +248,11 @@ updateConnection E self other newStatus conn = do
       Log.info $
         Log.connection self (ucTo s2o)
           . msg (val "Accepting connection")
-      cnv <- lift $ for (ucConvId s2o) $ Intra.acceptConnectConv self conn
+      -- if the conversation existed and had < 2 members before
+      --   via galley: MemberJoin EdMembersJoin event to you
+      -- if the conversation existed and only the other already was member before
+      --   via galley: MemberJoin EdMembersJoin event to other
+      cnv <- lift $ for (ucConvId s2o) $ Intra.acceptConnectConv N self conn
       -- Note: The check for @Pending@ accounts for situations in which both
       --       sides are pending, which can occur due to rare race conditions
       --       when sending mutual connection requests, combined with untimely
@@ -243,7 +278,7 @@ updateConnection E self other newStatus conn = do
       Log.info $
         Log.connection self (ucTo s2o)
           . msg (val "Unblocking connection")
-      cnv <- lift $ for (ucConvId s2o) $ Intra.unblockConv (ucFrom s2o) conn
+      cnv <- lift $ for (ucConvId s2o) $ Intra.unblockConv undefined (ucFrom s2o) conn
       when (ucStatus o2s == Sent && new == Accepted) $ lift $ do
         o2s' <-
           if (cnvType <$> cnv) /= Just ConnectConv
@@ -267,6 +302,8 @@ updateConnection E self other newStatus conn = do
     connection a b = lift (Data.lookupConnection a b) >>= tryJust (NotConnected a b)
 
 -- ConnectionUpdated event to self and users connecting with
+--
+-- TODO(createConnectConversation)
 autoConnect ::
   E ->
   UserId ->
@@ -304,8 +341,13 @@ autoConnect E from (Set.toList -> to) conn = do
       existing <- map csFrom <$> Data.lookupConnectionStatus usrs [from]
       return $ filter (`notElem` existing) usrs
     createConv s o = do
-      c <- Intra.createConnectConv s o Nothing Nothing conn
-      _ <- Intra.acceptConnectConv o conn c
+      -- TODO(createConnectConversation)
+      c <- Intra.createConnectConv N s o Nothing Nothing conn
+      -- if the conversation existed and had < 2 members before
+      --   via galley: MemberJoin EdMembersJoin event to you
+      -- if the conversation existed and only the other already was member before
+      --   via galley: MemberJoin EdMembersJoin event to other
+      _ <- Intra.acceptConnectConv N o conn c
       return (o, c)
     -- Note: The events sent to the users who got auto-connected to 'from'
     --       get the user name of the user whom they got connected to included.
