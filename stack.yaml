@@ -62,4 +62,3 @@ allow-newer: false
 
 nix:
   shell-file: stack-deps.nix
-  enable: true
