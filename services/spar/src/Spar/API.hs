@@ -29,6 +29,7 @@ import Control.Lens
 import Control.Monad.Except
 import qualified Data.ByteString as SBS
 import qualified Data.ByteString.Base64 as ES
+import Data.ByteString.Builder (toLazyByteString)
 import Data.Id
 import Data.Proxy
 import Data.String.Conversions
@@ -82,6 +83,7 @@ apiIDP =
     :<|> idpGetRaw
     :<|> idpGetAll
     :<|> idpCreate
+    :<|> idpUpdate
     :<|> idpDelete
 
 apiINTERNAL :: ServerT APIINTERNAL Spar
@@ -263,8 +265,8 @@ validateNewIdP _idpMetadata _idpExtraInfo = do
     Nothing -> pure ()
     Just _ -> throwSpar SparNewIdPAlreadyInUse
   -- each idp (issuer) can only be created once.  if you want to update (one of) your team's
-  -- idp(s), either use put (not implemented), or delete the old one before creating a new one
-  -- (already works, even though it may create a brief time window in which users experience
+  -- idp(s), either use put, or delete the old one before creating a new one
+  -- (*may* already work, even though it may create a brief time window in which users experience
   -- broken login behavior).
   --
   -- rationale: the issuer is how the idp self-identifies.  we can't allow the same idp to serve
@@ -274,6 +276,46 @@ validateNewIdP _idpMetadata _idpExtraInfo = do
   -- creating users in victim teams.
 
   pure SAML.IdPConfig {..}
+
+idpUpdate :: Maybe UserId -> IdPMetadataInfo -> Spar IdP
+idpUpdate zusr (IdPMetadataValue raw xml) = idpUpdateXML zusr raw xml
+
+idpUpdateXML :: Maybe UserId -> Text -> SAML.IdPMetadata -> Spar IdP
+idpUpdateXML zusr raw idpmeta = withDebugLog "idpUpdate" (Just . show . (^. SAML.idpId)) $ do
+  teamid <- Intra.getZUsrOwnedTeam zusr
+  Galley.assertSSOEnabled teamid
+  idp <- validateIdPUpdate idpmeta teamid
+  wrapMonadClient $ Data.storeIdPRawMetadata (idp ^. SAML.idpId) raw
+  SAML.storeIdPConfig idp
+  -- race condition: if raw metadata is stored and then spar goes out, raw metadata won't
+  -- match the structured idp config.  at the time of writing this comment, we only use the
+  -- raw metadata for debugging and forensics, so this may not be a problem.
+  pure idp
+
+-- | Check that issuer exists and belongs to the right team and request URI is https.
+validateIdPUpdate ::
+  forall m.
+  (HasCallStack, m ~ Spar) =>
+  SAML.IdPMetadata ->
+  TeamId ->
+  m IdP
+validateIdPUpdate _idpMetadata _idpExtraInfo = do
+  previousIdP <- wrapMonadClient (Data.getIdPConfigByIssuer (_idpMetadata ^. SAML.edIssuer)) >>= \case
+    Nothing -> throwError $ errUnkownIdP
+    Just idp -> pure idp
+  let _idpId = previousIdP ^. SAML.idpId
+  unless (previousIdP ^. SAML.idpExtraInfo == _idpExtraInfo) $ do
+    throwError errUnkownIdP
+  unless (previousIdP ^. SAML.idpMetadata . SAML.edIssuer == (_idpMetadata ^. SAML.edIssuer)) $
+    error "inconsistent database state" -- we usually don't check these, but perhaps it explains things?
+  let requri = _idpMetadata ^. SAML.edRequestURI
+  enforceHttps requri
+  pure SAML.IdPConfig {..}
+  where
+    errUnkownIdP = SAML.UnknownIdP $ enc uri
+      where
+        enc = cs . toLazyByteString . URI.serializeURIRef
+        uri = _idpMetadata ^. SAML.edIssuer . SAML.fromIssuer
 
 withDebugLog :: SAML.SP m => String -> (a -> Maybe String) -> m a -> m a
 withDebugLog msg showval action = do
