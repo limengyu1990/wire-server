@@ -215,7 +215,11 @@ createOne2OneConversation E zusr zcon (NewConvUnmanaged j) = do
       notifyCreatedConversation E Nothing zusr (Just zcon) c
       conversationCreated zusr c
 
--- TODO(createConnectConversation)
+-- if conversation did not exist before:
+--   ConvCreate EdConversation event to self
+--   ConvConnect EdConnect event to self
+-- if conversation existed, but other didn't join/accept yet;
+--   ConvConnect EdConnect event to self
 createConnectConversationH :: E -> UserId ::: Maybe ConnId ::: JsonRequest Connect -> Galley Response
 createConnectConversationH E (usr ::: conn ::: req) = do
   j <- fromJsonBody req

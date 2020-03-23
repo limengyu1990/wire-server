@@ -889,7 +889,11 @@ sitemap = do
     zauthUserId
       .&. zauthConnId
       .&. jsonRequest @NewConvManaged
-  -- TODO(createConnectConversation)
+  -- if conversation did not exist before:
+  --   ConvCreate EdConversation event to self
+  --   ConvConnect EdConnect event to self
+  -- if conversation existed, but other didn't join/accept yet;
+  --   ConvConnect EdConnect event to self
   post "/i/conversations/connect" (continue (Create.createConnectConversationH E)) $
     zauthUserId
       .&. opt zauthConnId

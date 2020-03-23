@@ -97,6 +97,11 @@ createConnection N E self ConnectionRequest {..} conn = do
         Log.connection self crUser
           . msg (val "Creating connection")
       -- TODO(createConnectConversation)
+      -- via galley, if conversation did not exist before:
+      --   ConvCreate EdConversation event to self
+      --   ConvConnect EdConnect event to self
+      -- via galley, if conversation existed, but other didn't join/accept yet;
+      --   ConvConnect EdConnect event to self
       cnv <- Intra.createConnectConv N self crUser (Just crName) (Just crMessage) (Just conn)
       s2o' <- Data.insertConnection self crUser Sent (Just crMessage) cnv
       o2s' <- Data.insertConnection crUser self Pending (Just crMessage) cnv
@@ -342,6 +347,11 @@ autoConnect E from (Set.toList -> to) conn = do
       return $ filter (`notElem` existing) usrs
     createConv s o = do
       -- TODO(createConnectConversation)
+      -- via galley, if conversation did not exist before:
+      --   ConvCreate EdConversation event to self
+      --   ConvConnect EdConnect event to self
+      -- via galley, if conversation existed, but other didn't join/accept yet;
+      --   ConvConnect EdConnect event to self
       c <- Intra.createConnectConv N s o Nothing Nothing conn
       -- if the conversation existed and had < 2 members before
       --   via galley: MemberJoin EdMembersJoin event to you
