@@ -62,6 +62,7 @@ tests s =
       test s "remove aka delete team member" testRemoveNonBindingTeamMember,
       test s "remove aka delete team member (binding, owner has passwd)" (testRemoveBindingTeamMember True),
       test s "remove aka delete team member (binding, owner has no passwd)" (testRemoveBindingTeamMember False),
+      test s "remove aka delete team owner (binding)" testRemoveBindingTeamOwner,
       test s "add team conversation (no role as argument)" testAddTeamConvLegacy,
       test s "add team conversation with role" testAddTeamConvWithRole,
       test s "add team conversation as partner (fail)" testAddTeamConvAsExternalPartner,
@@ -481,6 +482,43 @@ testRemoveBindingTeamMember ownerHasPassword = do
     WS.assertNoEvent timeout [wsMext]
     -- Mem1 is now gone from Wire
     Util.ensureDeletedState True owner (mem1 ^. userId)
+
+testRemoveBindingTeamOwner :: TestM ()
+testRemoveBindingTeamOwner = do
+  -- Create a team with owners A, B, C, and admin D.  A, B, D have email, C doesn't.
+  [ownerA, ownerB, ownerC, adminD] <- do
+    users <- replicateM 4 Util.randomUser
+    () <- error "attach emails to a, b, d, not to b."
+    pure users
+  tid <- do
+    tid <- Util.createBindingTeamInternal "foo" ownerA
+    assertQueue "create team" tActivate
+    pure tid
+  do
+    Util.addTeamMemberInternal tid
+      `mapM_` [ newTeamMember ownerB (rolePermissions RoleOwner) Nothing,
+                newTeamMember ownerC (rolePermissions RoleOwner) Nothing,
+                newTeamMember adminD (rolePermissions RoleAdmin) Nothing
+              ]
+    assertQueue "team member join" $ tUpdate 2 [ownerA]
+  -- C can *not* delete A.
+  go tid ownerC ownerA False
+  -- D can *not* delete A.
+  go tid adminD ownerA False
+  -- B can delete A.
+  go tid ownerB ownerA True
+  where
+    go :: TeamId -> UserId -> UserId -> Bool -> TestM ()
+    go tid deleter deletee works = do
+      g <- view tsGalley
+      delete
+        ( g
+            . paths ["teams", toByteString' tid, "members", toByteString' deletee]
+            . zUser deleter
+            . zConn "conn"
+            . json (newTeamMemberDeleteData (Just $ Util.defPassword))
+        )
+        !!! (if works then const 202 else const 403) === statusCode
 
 testAddTeamConvLegacy :: TestM ()
 testAddTeamConvLegacy = do
