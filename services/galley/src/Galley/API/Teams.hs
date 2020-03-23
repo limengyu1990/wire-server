@@ -246,7 +246,11 @@ uncheckedDeleteTeam zusr zcon tid = do
     -- every bot user can only be in a single conversation. Just
     -- deleting conversations from the database is not enough.
     when ((view teamBinding . tdTeam <$> team) == Just Binding) $ do
-      mapM_ (deleteUser . view userId) membs
+      -- FUTUREWORK: teams is out of scope for now
+      -- when internal event is handled asynchronously in brig:
+      --   UserDeleted event to contacts
+      --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+      mapM_ (deleteUser N . view userId) membs
       Journal.teamDelete tid
     Data.deleteTeam tid
   where
@@ -463,7 +467,11 @@ deleteTeamMember zusr zcon tid remove mBody = do
     then do
       body <- mBody & ifNothing (invalidPayload "missing request body")
       ensureReAuthorised zusr (body ^. tmdAuthPassword)
-      deleteUser remove
+      -- FUTUREWORK: teams is out of scope for now
+      -- when internal event is handled asynchronously in brig:
+      --   UserDeleted event to contacts
+      --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
+      deleteUser N remove
       Journal.teamUpdate tid (filter (\u -> u ^. userId /= remove) mems)
       pure TeamMemberDeleteAccepted
     else do
@@ -741,7 +749,11 @@ setLegalholdStatusInternal tid legalHoldTeamConfig = do
       FeatureLegalHoldDisabledPermanently -> do
         throwM legalHoldFeatureFlagNotEnabled
   case legalHoldTeamConfigStatus legalHoldTeamConfig of
-    LegalHoldDisabled -> removeSettings' tid Nothing
+    -- FUTUREWORK: teams is out of scope for now
+    -- for each user with a legalhold client, via brig:
+    --   ClientRemoved event to self
+    --   UserLegalHoldDisabled event to contacts
+    LegalHoldDisabled -> removeSettings' N tid Nothing
     LegalHoldEnabled -> pure ()
   LegalHoldData.setLegalHoldTeamConfig tid legalHoldTeamConfig
 

@@ -283,7 +283,10 @@ sitemap = do
     zauthUserId
       .&. capture "tid"
       .&. accept "application" "json"
-  delete "/teams/:tid/legalhold/settings" (continue LegalHold.removeSettingsH) $
+  -- for each user with a legalhold client, via brig:
+  --   ClientRemoved event to self
+  --   UserLegalHoldDisabled event to contacts
+  delete "/teams/:tid/legalhold/settings" (continue (LegalHold.removeSettingsH N)) $
     zauthUserId
       .&. capture "tid"
       .&. jsonRequest @RemoveLegalHoldSettingsRequest
@@ -293,18 +296,27 @@ sitemap = do
       .&. capture "tid"
       .&. capture "uid"
       .&. accept "application" "json"
-  post "/teams/:tid/legalhold/:uid" (continue LegalHold.requestDeviceH) $
+  -- if user did not have legalhold client before, via brig:
+  --   LegalHoldClientRequested event to contacts of user
+  post "/teams/:tid/legalhold/:uid" (continue (LegalHold.requestDeviceH N)) $
     zauthUserId
       .&. capture "tid"
       .&. capture "uid"
       .&. accept "application" "json"
-  delete "/teams/:tid/legalhold/:uid" (continue LegalHold.disableForUserH) $
+  -- via brig:
+  --   ClientRemoved event to self
+  --   UserLegalHoldDisabled event to contacts
+  delete "/teams/:tid/legalhold/:uid" (continue (LegalHold.disableForUserH N)) $
     zauthUserId
       .&. capture "tid"
       .&. capture "uid"
       .&. jsonRequest @DisableLegalHoldForUserRequest
       .&. accept "application" "json"
-  put "/teams/:tid/legalhold/:uid/approve" (continue LegalHold.approveDeviceH) $
+  -- via brig:
+  --   ClientAdded event to self
+  --   UserLegalHoldEnabled event to contacts
+  --   ClientRemoved event to self, if removing old clients
+  put "/teams/:tid/legalhold/:uid/approve" (continue (LegalHold.approveDeviceH N)) $
     zauthUserId
       .&. capture "tid"
       .&. capture "uid"

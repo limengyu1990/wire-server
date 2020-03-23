@@ -86,7 +86,7 @@ getLegalHoldAuthToken uid pw = do
 --   ClientRemoved event to self, if removing old clients
 addLegalHoldClientToUser :: N -> UserId -> ConnId -> [Prekey] -> LastPrekey -> Galley ClientId
 addLegalHoldClientToUser N uid connId prekeys lastPrekey' = do
-  clientId <$> brigAddClient uid connId lhClient
+  clientId <$> brigAddClient N uid connId lhClient
   where
     lhClient =
       NewClient
