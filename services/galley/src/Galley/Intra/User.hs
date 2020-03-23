@@ -114,13 +114,18 @@ getContactList uid = do
 canBeDeleted :: [TeamMember] -> UserId -> TeamId -> Galley Bool
 canBeDeleted members uid tid = if askGalley then pure True else askBrig
   where
+    -- @@@ pass the team member we looked up, not the list for looking it up inside that list.  that's silly.
+    -- @@@ members -> deleteeMember; uid -> deleteeUid; deleterMember, deleterUid
+
     -- team members without full permissions can always be deleted.
     askGalley = case filter ((== uid) . (^. userId)) members of
       (mem : _) -> not (isTeamOwner mem)
       _ -> False -- e.g., if caller has no members and passes an empty list.
 
-    -- only if still in doubt, ask brig.
+    -- if deletee role is owner, make sure deleter is also an owner and has an email address.
     askBrig = do
+      -- @@@ check role.
+      -- @@@ fetch user from brig; check email.
       (h, p) <- brigReq
       st <-
         statusCode . responseStatus

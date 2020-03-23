@@ -132,6 +132,7 @@ sitemap o = do
       .&. jsonRequest @ExcludedPrefix
   -- is :uid not team owner, or there are other team owners?
   get "/i/users/:uid/can-be-deleted/:tid" (continue canBeDeletedH) $
+    -- @@@ remove this.  track 'TeamOwnershipStatus' and try to remove / reduce that as well.
     capture "uid"
       .&. capture "tid"
   -- is :uid team owner (the only one or one of several)?

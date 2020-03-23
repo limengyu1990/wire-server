@@ -1232,6 +1232,7 @@ postCryptoBroadcastMessage100OrMaxConns = do
         (403, 403, _, (x : xs)) -> return (x, xs)
         (xxx, yyy, _, _) -> error ("Unexpected while connecting users: " ++ show xxx ++ " and " ++ show yyy)
 
+-- @@@ TODO: remove this, it's silly and confusing.
 newTeamMember' :: Permissions -> UserId -> TeamMember
 newTeamMember' perms uid = newTeamMember uid perms Nothing
 

@@ -408,7 +408,7 @@ updateTeamMember zusr zcon tid targetMember = do
     Nothing -> throwM teamMemberNotFound
     _ -> pure ()
   -- cannot demote only owner (effectively removing the last owner)
-  members <- Data.teamMembersUnsafeForLargeTeams tid
+  members <- Data.teamMembersUnsafeForLargeTeams tid -- @@@ look up targetid instead!
   okToDelete <- canBeDeleted members targetId tid
   when (not okToDelete && targetPermissions /= fullPermissions) $
     throwM noOtherOwner
@@ -416,6 +416,8 @@ updateTeamMember zusr zcon tid targetMember = do
   Data.updateTeamMember tid targetId targetPermissions
   let otherMembers = filter (\u -> u ^. userId /= targetId) members
       updatedMembers = targetMember : otherMembers
+  -- @@@ get 'updatedMembers' from database, and only for tier-2,3 teams
+  updatedMembers <- Data.teamMembersUnsafeForLargeTeams tid
   -- note the change in the journal
   when (team ^. teamBinding == Binding) $ Journal.teamUpdate tid updatedMembers
   -- inform members of the team about the change
@@ -449,11 +451,12 @@ deleteTeamMember zusr zcon tid remove mBody = do
       . Log.field "action" (Log.val "Teams.deleteTeamMember")
   zusrMembership <- Data.teamMember tid zusr
   void $ permissionCheck RemoveTeamMember zusrMembership
-  okToDelete <- canBeDeleted [] remove tid
+  okToDelete <- canBeDeleted [] remove tid -- @@@ TODO (really)
+      -- @@@ also, why @canBeDeleted []@?!  do we have a test that owners can delete members?  if so, why does it work?
   unless okToDelete $ throwM noOtherOwner
   team <- tdTeam <$> (Data.team tid >>= ifNothing teamNotFound)
   removeMembership <- Data.teamMember tid remove
-  mems <- Data.teamMembersUnsafeForLargeTeams tid
+  mems <- Data.teamMembersUnsafeForLargeTeams tid -- @@@ TODO (really)
   if team ^. teamBinding == Binding && isJust removeMembership
     then do
       body <- mBody & ifNothing (invalidPayload "missing request body")
@@ -468,6 +471,8 @@ deleteTeamMember zusr zcon tid remove mBody = do
 -- This function is "unchecked" because it does not validate that the user has the `RemoveTeamMember` permission.
 uncheckedRemoveTeamMember :: UserId -> Maybe ConnId -> TeamId -> UserId -> [TeamMember] -> Galley ()
 uncheckedRemoveTeamMember zusr zcon tid remove mems = do
+  -- @@@ make mems a `Maybe`, only push if events for tier-2,3 teams.
+
   now <- liftIO getCurrentTime
   let e = newEvent MemberLeave tid now & eventData .~ Just (EdMemberLeave remove)
   let r = list1 (userRecipient zusr) (membersToRecipients (Just zusr) mems)
