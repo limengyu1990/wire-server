@@ -462,32 +462,32 @@ specBindingUsers = describe "binding existing users to sso identities" $ do
 checkErr :: HasCallStack => (Int -> Bool) -> TestErrorLabel -> ResponseLBS -> Bool
 checkErr statusIs label resp = statusIs (statusCode resp) && responseJsonEither resp == Right label
 
-testGetPutDelete :: HasCallStack => (SparReq -> Maybe UserId -> IdPId -> Http ResponseLBS) -> SpecWith TestEnv
-testGetPutDelete whichone = do
+testGetPutDelete :: HasCallStack => (IdPId -> arg) -> (SparReq -> Maybe UserId -> arg -> Http ResponseLBS) -> SpecWith TestEnv
+testGetPutDelete mkarg whichone = do
         context "unknown IdP" $ do
           it "responds with 'not found'" $ do
             env <- ask
-            whichone (env ^. teSpar) Nothing (IdPId UUID.nil)
+            whichone (env ^. teSpar) Nothing (mkarg $ IdPId UUID.nil)
               `shouldRespondWith` checkErr (== 404) "not-found"
         context "no zuser" $ do
           it "responds with 'client error'" $ do
             env <- ask
             (_, _, (^. idpId) -> idpid) <- registerTestIdP
-            whichone (env ^. teSpar) Nothing idpid
+            whichone (env ^. teSpar) Nothing (mkarg idpid)
               `shouldRespondWith` checkErr (== 400) "client-error"
         context "zuser has no team" $ do
           it "responds with 'no team member'" $ do
             env <- ask
             (_, _, (^. idpId) -> idpid) <- registerTestIdP
             (uid, _) <- call $ createRandomPhoneUser (env ^. teBrig)
-            whichone (env ^. teSpar) (Just uid) idpid
+            whichone (env ^. teSpar) (Just uid) (mkarg idpid)
               `shouldRespondWith` checkErr (== 403) "no-team-member"
         context "zuser has wrong team" $ do
           it "responds with 'no team member'" $ do
             env <- ask
             (_, _, (^. idpId) -> idpid) <- registerTestIdP
             (uid, _) <- call $ createUserWithTeam (env ^. teBrig) (env ^. teGalley)
-            whichone (env ^. teSpar) (Just uid) idpid
+            whichone (env ^. teSpar) (Just uid) (mkarg idpid)
               `shouldRespondWith` checkErr (== 403) "no-team-member"
         context "zuser is a team member, but not a team owner" $ do
           it "responds with 'insufficient-permissions' and a helpful message" $ do
@@ -496,7 +496,7 @@ testGetPutDelete whichone = do
             newmember <-
               let Just perms = Galley.newPermissions mempty mempty
                in call $ createTeamMember (env ^. teBrig) (env ^. teGalley) teamid perms
-            whichone (env ^. teSpar) (Just newmember) idpid
+            whichone (env ^. teSpar) (Just newmember) (mkarg idpid)
               `shouldRespondWith` checkErr (== 403) "insufficient-permissions"
 
 -- Authenticate via sso, and assign owner status to the thus created user.  (This doesn't work
@@ -516,7 +516,7 @@ mkSsoOwner firstOwner tid idp = do
 specCRUDIdentityProvider :: SpecWith TestEnv
 specCRUDIdentityProvider = do
   describe "GET /identity-providers/:idp" $ do
-    testGetPutDelete callIdpGet'
+    testGetPutDelete id callIdpGet'
     context "known IdP, client is team owner" $ do
       it "responds with 2xx and IdP" $ do
         env <- ask
@@ -566,7 +566,7 @@ specCRUDIdentityProvider = do
           callIdpGetAll (env ^. teSpar) (Just ssoOwner)
             `shouldRespondWith` (not . null . _idplProviders)
   describe "DELETE /identity-providers/:idp" $ do
-    testGetPutDelete callIdpDelete'
+    testGetPutDelete id callIdpDelete'
     context "known IdP, IdP empty, client is team owner" $ do
       context "without email" $ it "responds with 2xx and removes IdP" $ do
         env <- ask
@@ -585,20 +585,28 @@ specCRUDIdentityProvider = do
           `shouldRespondWith` checkErr (== 412) "idp-has-bound-users"
         callIdpGet' (env ^. teSpar) (Just ssoOwner) (idp ^. idpId)
           `shouldRespondWith` \resp -> statusCode resp < 300
-  -- there are no routes for PUT yet.
-  xdescribe "PUT /identity-providers/:idp" $ do
-    xdescribe "need to implement `callIdpGet'` for these tests" $ do
-      let callIdpPut' :: SparReq -> Maybe UserId -> IdPId -> Http ResponseLBS
-          callIdpPut' = undefined -- (we need to change the type of 'testGetPutDelete', too, to accomodate the PUT body.)
-      testGetPutDelete callIdpPut'
+  describe "PUT /identity-providers/:idp" $ do
+    testGetPutDelete _ callIdpUpdate'
     context "known IdP, client is team owner" $ do
       it "responds with 2xx and updates IdP" $ do
-        pending
+        _
       context "invalid body" $ do
         it "rejects" $ do
-          pending -- (only test for signature here, but make sure that the same validity tests
-          -- are performed as for POST in Spar.API.)
-    it "also works with sso-authenticated users (see above)" $ pending
+          _
+    describe "unknown issuer" $ do
+      it "rejects" $ do
+        _
+    describe "issuer from other team" $ do
+      it "rejects" $ do
+        _
+    describe "new request uri" $ do
+      it "uses it on next auth handshake" $ do
+        _
+    describe "new certs" $ do
+      it "uses those certs on next auth handshake" $ do
+        _
+      it "removes all old certs (even if there were more before)" $ do
+        _
   describe "POST /identity-providers" $ do
     context "sso disabled for team" $ do
       it "responds with 403 forbidden" $ do

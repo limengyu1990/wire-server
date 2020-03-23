@@ -76,6 +76,7 @@ module Util.Core
     callIdpCreate',
     callIdpCreateRaw,
     callIdpCreateRaw',
+    callIdpUpdate',
     callIdpDelete,
     callIdpDelete',
     initCassandra,
@@ -873,6 +874,15 @@ callIdpCreateRaw' sparreq_ muid ctyp metadata = do
       . path "/identity-providers/"
       . body (RequestBodyLBS metadata)
       . header "Content-Type" ctyp
+
+callIdpUpdate' :: (MonadIO m, MonadHttp m) => SparReq -> Maybe UserId -> IdPMetadataInfo -> m ResponseLBS
+callIdpUpdate' sparreq_ muid (IdPMetadataValue metadata _) = do
+  put $
+    sparreq_
+      . maybe id zUser muid
+      . path "/identity-providers/"
+      . body (RequestBodyLBS $ cs metadata)
+      . header "Content-Type" "application/xml"
 
 callIdpDelete :: (MonadIO m, MonadHttp m) => SparReq -> Maybe UserId -> SAML.IdPId -> m ()
 callIdpDelete sparreq_ muid idpid = void $ callIdpDelete' (sparreq_ . expect2xx) muid idpid
