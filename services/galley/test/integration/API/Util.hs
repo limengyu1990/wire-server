@@ -49,7 +49,7 @@ createBindingTeam :: HasCallStack => TestM (UserId, TeamId)
 createBindingTeam = do
   ownerid <- randomUser
   let tname :: Text = cs $ show ownerid -- doesn't matter what, but needs to be unique!
-  teamid <- createTeamInternal tname ownerid
+  teamid <- createBindingTeamInternal tname ownerid
   SQS.assertQueue "create team" SQS.tActivate
   pure (ownerid, teamid)
 
@@ -84,16 +84,14 @@ changeTeamStatus tid s = do
     !!! const 200
     === statusCode
 
--- | This creates a binding team.
--- TODO: Rename to createBindingTeamInternal
-createTeamInternal :: HasCallStack => Text -> UserId -> TestM TeamId
-createTeamInternal name owner = do
-  tid <- createTeamInternalNoActivate name owner
+createBindingTeamInternal :: HasCallStack => Text -> UserId -> TestM TeamId
+createBindingTeamInternal name owner = do
+  tid <- createBindingTeamInternalNoActivate name owner
   changeTeamStatus tid Active
   return tid
 
-createTeamInternalNoActivate :: HasCallStack => Text -> UserId -> TestM TeamId
-createTeamInternalNoActivate name owner = do
+createBindingTeamInternalNoActivate :: HasCallStack => Text -> UserId -> TestM TeamId
+createBindingTeamInternalNoActivate name owner = do
   g <- view tsGalley
   tid <- randomId
   let nt = BindingNewTeam $ newNewTeam (unsafeRange name) (unsafeRange "icon")
@@ -102,10 +100,10 @@ createTeamInternalNoActivate name owner = do
     const True === isJust . getHeader "Location"
   return tid
 
-createTeamInternalWithCurrency :: HasCallStack => Text -> UserId -> Currency.Alpha -> TestM TeamId
-createTeamInternalWithCurrency name owner cur = do
+createBindingTeamInternalWithCurrency :: HasCallStack => Text -> UserId -> Currency.Alpha -> TestM TeamId
+createBindingTeamInternalWithCurrency name owner cur = do
   g <- view tsGalley
-  tid <- createTeamInternalNoActivate name owner
+  tid <- createBindingTeamInternalNoActivate name owner
   _ <-
     put (g . paths ["i", "teams", toByteString' tid, "status"] . json (TeamStatusUpdate Active $ Just cur))
       !!! const 200 === statusCode
