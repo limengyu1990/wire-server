@@ -409,7 +409,7 @@ testRemoveBindingTeamMember :: Bool -> TestM ()
 testRemoveBindingTeamMember ownerHasPassword = do
   g <- view tsGalley
   c <- view tsCannon
-  owner <- Util.randomUser' ownerHasPassword
+  owner <- Util.randomUser' ownerHasPassword True
   tid <- Util.createBindingTeamInternal "foo" owner
   assertQueue "create team" tActivate
   mext <- Util.randomUser
@@ -485,11 +485,10 @@ testRemoveBindingTeamMember ownerHasPassword = do
 
 testRemoveBindingTeamOwner :: TestM ()
 testRemoveBindingTeamOwner = do
-  -- Create a team with owners A, B, C, and admin D.  A, B, D have email, C doesn't.
-  [ownerA, ownerB, ownerC, adminD] <- do
-    users <- replicateM 4 Util.randomUser
-    () <- error "attach emails to a, b, d, not to b."
-    pure users
+  ownerA <- Util.randomUser
+  ownerB <- Util.randomUser
+  ownerWithoutEmail <- Util.randomUser' True False
+  admin <- Util.randomUser
   tid <- do
     tid <- Util.createBindingTeamInternal "foo" ownerA
     assertQueue "create team" tActivate
@@ -497,19 +496,17 @@ testRemoveBindingTeamOwner = do
   do
     Util.addTeamMemberInternal tid
       `mapM_` [ newTeamMember ownerB (rolePermissions RoleOwner) Nothing,
-                newTeamMember ownerC (rolePermissions RoleOwner) Nothing,
-                newTeamMember adminD (rolePermissions RoleAdmin) Nothing
+                newTeamMember ownerWithoutEmail (rolePermissions RoleOwner) Nothing,
+                newTeamMember admin (rolePermissions RoleAdmin) Nothing
               ]
     assertQueue "team member join" $ tUpdate 2 [ownerA]
-  -- C can *not* delete A.
-  go tid ownerC ownerA False
-  -- D can *not* delete A.
-  go tid adminD ownerA False
-  -- B can delete A.
-  go tid ownerB ownerA True
+  check tid ownerA ownerA False
+  check tid ownerWithoutEmail ownerA False
+  check tid admin ownerA False
+  check tid ownerB ownerA True
   where
-    go :: TeamId -> UserId -> UserId -> Bool -> TestM ()
-    go tid deleter deletee works = do
+    check :: TeamId -> UserId -> UserId -> Bool -> TestM ()
+    check tid deleter deletee works = do
       g <- view tsGalley
       delete
         ( g
@@ -788,7 +785,7 @@ testDeleteBindingTeam :: Bool -> TestM ()
 testDeleteBindingTeam ownerHasPassword = do
   g <- view tsGalley
   c <- view tsCannon
-  owner <- Util.randomUser' ownerHasPassword
+  owner <- Util.randomUser' ownerHasPassword True
   tid <- Util.createBindingTeamInternal "foo" owner
   assertQueue "create team" tActivate
   let p1 = Util.symmPermissions [DoNotUseDeprecatedAddRemoveConvMember]

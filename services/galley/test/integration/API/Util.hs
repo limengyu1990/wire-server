@@ -884,16 +884,17 @@ randomUsers :: Int -> TestM [UserId]
 randomUsers n = replicateM n randomUser
 
 randomUser :: HasCallStack => TestM UserId
-randomUser = randomUser' True
+randomUser = randomUser' True True
 
-randomUser' :: HasCallStack => Bool -> TestM UserId
-randomUser' hasPassword = do
+randomUser' :: HasCallStack => Bool -> Bool -> TestM UserId
+randomUser' hasPassword hasEmail = do
   b <- view tsBrig
   e <- liftIO randomEmail
   let p =
         object $
-          ["name" .= fromEmail e, "email" .= fromEmail e]
+          ["name" .= fromEmail e]
             <> ["password" .= defPassword | hasPassword]
+            <> ["email" .= fromEmail e | hasEmail]
   r <- post (b . path "/i/users" . json p) <!! const 201 === statusCode
   fromBS (getHeader' "Location" r)
 
