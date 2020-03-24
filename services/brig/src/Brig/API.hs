@@ -73,13 +73,13 @@ sitemap o = do
   get "/i/status" (continue $ const $ return empty) true
   head "/i/status" (continue $ const $ return empty) true
   -- This endpoint can lead to the following events being sent to clients:
-  -- - ConnectionUpdated event to user and all users connecting with
-  -- - ConvCreate event to user for each connect conversation that did not exist before (via
-  --   galley)
-  -- - ConvConnect event to user for each connection that was not already accepted by the
+  -- - ConnectionUpdated event to the user and all users connecting with
+  -- - ConvCreate event to the user for each connect conversation that did not exist before
+  --   (via galley)
+  -- - ConvConnect event to the user for each connection that was not already accepted by the
   --   other
-  -- - MemberJoin event to user and other for each connection that was not already accepted
-  --   by the other
+  -- - MemberJoin event to the user and other for each connection that was not already
+  --   accepted by the other
   post "/i/users/:uid/auto-connect" (continue autoConnectH) $
     accept "application" "json"
       .&. capture "uid"
@@ -808,8 +808,8 @@ sitemap o = do
   ---
 
   -- This endpoint can lead to the following events being sent to clients:
-  -- - UserActivated event to user, if account gets activated
-  -- - UserIdentityUpdated event to user, if email or phone get activated
+  -- - UserActivated event to the user, if account gets activated
+  -- - UserIdentityUpdated event to the user, if email or phone get activated
   get "/activate" (continue activateH) $
     query "key"
       .&. query "code"
@@ -829,8 +829,8 @@ sitemap o = do
   -- docs/reference/user/activation.md {#RefActivationSubmit}
   --
   -- This endpoint can lead to the following events being sent to clients:
-  -- - UserActivated event to user, if account gets activated
-  -- - UserIdentityUpdated event to user, if email or phone get activated
+  -- - UserActivated event to the user, if account gets activated
+  -- - UserIdentityUpdated event to the user, if email or phone get activated
   post "/activate" (continue activateKeyH) $
     accept "application" "json"
       .&. jsonRequest @Activate
