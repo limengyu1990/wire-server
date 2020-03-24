@@ -74,8 +74,13 @@ sitemap o = do
   head "/i/status" (continue $ const $ return empty) true
   -- ConnectionUpdated event to self and users connecting with
   --
-  -- TODO(createConnectConversation)
-  post "/i/users/:uid/auto-connect" (continue (autoConnectH E)) $
+  -- This will cause events to be sent from Galley:
+  -- for connect conversations that did not exist before:
+  --   via galley: ConvCreate EdConversation event to self
+  -- if others didn't join a connect conversation with self before:
+  --   via galley: ConvConnect EdConnect event to self
+  --   via galley: MemberJoin EdMembersJoin event to you and other
+  post "/i/users/:uid/auto-connect" (continue (autoConnectH N E)) $
     accept "application" "json"
       .&. capture "uid"
       .&. opt (header "Z-Connection")
@@ -528,12 +533,12 @@ sitemap o = do
   -- ConnectionUpdated event to self and other, unless both states already exist and (1) any state is blocked or (2) both sides already accepted
   --
   -- potentially can cause events to be sent from Galley:
-  -- if the other already was member of connect conversation and has connection status Sent or Accepted:
-  --   via galley: MemberJoin EdMembersJoin event to you
-  --   via galley: MemberJoin EdMembersJoin event to other
+  -- if only the other already was member of connect conversation and has connection status Sent or Accepted:
+  --   via galley: MemberJoin EdMembersJoin event to you and other
   --
-  -- TODO(createConnectConversation)
-  -- for details check 'Galley.API.Create.createConnectConversation'.
+  --  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
+  --   via galley: ConvCreate EdConversation event to self
+  --   via galley: ConvConnect EdConnect event to self
   post "/connections" (continue (createConnectionH N E)) $
     accept "application" "json"
       .&. header "Z-User"
@@ -574,7 +579,11 @@ sitemap o = do
 
   -- ConnectionUpdated event to self, if our state changes
   -- ConnectionUpdated event to other, if their state changes as well
-  put "/connections/:id" (continue (updateConnectionH E)) $
+  --
+  -- when moving to Sent or Accepted, this potentially can cause events to be sent from Galley when joining the connect conversation:
+  --   via galley: MemberJoin EdMembersJoin event to you
+  --   via galley: MemberJoin EdMembersJoin event to other
+  put "/connections/:id" (continue (updateConnectionH N E)) $
     accept "application" "json"
       .&. header "Z-User"
       .&. header "Z-Connection"
@@ -1097,16 +1106,26 @@ listPrekeyIdsH (usr ::: clt ::: _) = json <$> lift (API.lookupPrekeyIds usr clt)
 
 -- ConnectionUpdated event to self and users connecting with
 --
--- TODO(createConnectConversation)
-autoConnectH :: E -> JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
-autoConnectH E (_ ::: uid ::: conn ::: req) = do
-  json <$> (autoConnect E uid conn =<< parseJsonBody req)
+-- This will cause events to be sent from Galley:
+-- for connect conversations that did not exist before:
+--   via galley: ConvCreate EdConversation event to self
+-- if others didn't join a connect conversation with self before:
+--   via galley: ConvConnect EdConnect event to self
+--   via galley: MemberJoin EdMembersJoin event to you and other
+autoConnectH :: N -> E -> JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
+autoConnectH N E (_ ::: uid ::: conn ::: req) = do
+  json <$> (autoConnect N E uid conn =<< parseJsonBody req)
 
 -- ConnectionUpdated event to self and users connecting with
 --
--- TODO(createConnectConversation)
-autoConnect :: E -> UserId -> Maybe ConnId -> UserSet -> Handler [UserConnection]
-autoConnect E uid conn (UserSet to) = do
+-- This will cause events to be sent from Galley:
+-- for connect conversations that did not exist before:
+--   via galley: ConvCreate EdConversation event to self
+-- if others didn't join a connect conversation with self before:
+--   via galley: ConvConnect EdConnect event to self
+--   via galley: MemberJoin EdMembersJoin event to you and other
+autoConnect :: N -> E -> UserId -> Maybe ConnId -> UserSet -> Handler [UserConnection]
+autoConnect N E uid conn (UserSet to) = do
   let num = Set.size to
   when (num < 1)
     $ throwStd
@@ -1116,8 +1135,13 @@ autoConnect E uid conn (UserSet to) = do
     $ badRequest "Too many users given for auto-connect (> 25)."
   -- ConnectionUpdated event to self and users connecting with
   --
-  -- TODO(createConnectConversation)
-  API.autoConnect E uid to conn !>> connError
+  -- This will cause events to be sent from Galley:
+  -- for connect conversations that did not exist before:
+  --   via galley: ConvCreate EdConversation event to self
+  -- if others didn't join a connect conversation with self before:
+  --   via galley: ConvConnect EdConnect event to self
+  --   via galley: MemberJoin EdMembersJoin event to you and other
+  API.autoConnect N E uid to conn !>> connError
 
 -- docs/reference/user/registration.md {#RefRegistration}
 --
@@ -1538,21 +1562,25 @@ getConnectionsStatus ConnectionsStatusRequest {csrFrom, csrTo} flt = do
 -- ConnectionUpdated event to self and other, unless both states already exist and (1) any state is blocked or (2) both sides already accepted
 --
 -- potentially can cause events to be sent from Galley:
--- if the other already was member of connect conversation and has connection status Sent or Accepted:
---   via galley: MemberJoin EdMembersJoin event to you
---   via galley: MemberJoin EdMembersJoin event to other
+-- if only the other already was member of connect conversation and has connection status Sent or Accepted:
+--   via galley: MemberJoin EdMembersJoin event to you and other
 --
--- TODO(createConnectConversation)
--- for details check 'Galley.API.Create.createConnectConversation'.
+--  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
+--   via galley: ConvCreate EdConversation event to self
+--   via galley: ConvConnect EdConnect event to self
 createConnectionH :: N -> E -> JSON ::: UserId ::: ConnId ::: JsonRequest ConnectionRequest -> Handler Response
 createConnectionH N E (_ ::: self ::: conn ::: req) = do
   cr <- parseJsonBody req
   -- ConnectionUpdated event to self, unless both states already exist and any state is blocked or both already accepted
   -- ConnectionUpdated event to other, unless both states already exist and any state is blocked or both already accepted
   --
-  -- if the other already was member of connect conversation and has connection status Sent or Accepted:
-  --   via galley: MemberJoin EdMembersJoin event to you
-  --   via galley: MemberJoin EdMembersJoin event to other
+  -- potentially can cause events to be sent from Galley:
+  -- if only the other already was member of connect conversation and has connection status Sent or Accepted:
+  --   via galley: MemberJoin EdMembersJoin event to you and other
+  --
+  --  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
+  --   via galley: ConvCreate EdConversation event to self
+  --   via galley: ConvConnect EdConnect event to self
   rs <- API.createConnection N E self cr conn !>> connError
   return $ case rs of
     ConnectionCreated c -> setStatus status201 $ json c
@@ -1560,12 +1588,16 @@ createConnectionH N E (_ ::: self ::: conn ::: req) = do
 
 -- ConnectionUpdated event to self, if our state changes
 -- ConnectionUpdated event to other, if their state changes as well
-updateConnectionH :: E -> JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
-updateConnectionH E (_ ::: self ::: conn ::: other ::: req) = do
+--
+-- when moving to Sent or Accepted, this potentially can cause events to be sent from Galley when joining the connect conversation:
+--   via galley: MemberJoin EdMembersJoin event to you
+--   via galley: MemberJoin EdMembersJoin event to other
+updateConnectionH :: N -> E -> JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
+updateConnectionH N E (_ ::: self ::: conn ::: other ::: req) = do
   newStatus <- cuStatus <$> parseJsonBody req
   -- ConnectionUpdated event to self, if our state changes
   -- ConnectionUpdated event to other, if their state changes as well
-  mc <- API.updateConnection E self other newStatus (Just conn) !>> connError
+  mc <- API.updateConnection N E self other newStatus (Just conn) !>> connError
   return $ case mc of
     Just c -> json c
     Nothing -> setStatus status204 empty

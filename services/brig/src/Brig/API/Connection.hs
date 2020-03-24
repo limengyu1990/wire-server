@@ -41,12 +41,12 @@ import System.Logger.Message
 -- ConnectionUpdated event to self and other, unless both states already exist and any state is blocked or both already accepted
 --
 -- potentially can cause events to be sent from Galley:
--- if the other already was member of connect conversation and has connection status Sent or Accepted:
---   via galley: MemberJoin EdMembersJoin event to you
---   via galley: MemberJoin EdMembersJoin event to other
+-- if only the other already was member of connect conversation and has connection status Sent or Accepted:
+--   via galley: MemberJoin EdMembersJoin event to you and other
 --
--- TODO(createConnectConversation)
--- for details check 'Galley.API.Create.createConnectConversation'.
+--  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
+--   via galley: ConvCreate EdConversation event to self
+--   via galley: ConvConnect EdConnect event to self
 createConnection ::
   N ->
   E ->
@@ -85,18 +85,25 @@ createConnection N E self ConnectionRequest {..} conn = do
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
       --
-      -- TODO(createConnectConversation)
+      -- if connect conversation did not exist before:
+      --   via galley: ConvCreate EdConversation event to self
+      --   via galley: ConvConnect EdConnect event to self
+      -- if conversation existed, but other didn't join/accept yet;
+      --   via galley: ConvConnect EdConnect event to self
       ConnectionCreated <$> insert E Nothing Nothing
   where
     -- ConnectionUpdated event to self
     -- ConnectionUpdated event to other
     --
-    -- TODO(createConnectConversation)
+    -- if connect conversation did not exist before:
+    --   via galley: ConvCreate EdConversation event to self
+    --   via galley: ConvConnect EdConnect event to self
+    -- if conversation existed, but other didn't join/accept yet;
+    --   via galley: ConvConnect EdConnect event to self
     insert E s2o o2s = lift $ do
       Log.info $
         Log.connection self crUser
           . msg (val "Creating connection")
-      -- TODO(createConnectConversation)
       -- via galley, if conversation did not exist before:
       --   ConvCreate EdConversation event to self
       --   ConvConnect EdConnect event to self
@@ -116,6 +123,9 @@ createConnection N E self ConnectionRequest {..} conn = do
     -- if only the other already was member of connect conversation before and has status Sent or Accepted:
     --   via galley: MemberJoin EdMembersJoin event to you
     --   via galley: MemberJoin EdMembersJoin event to other
+    --
+    -- if conversation existed, but other didn't join/accept yet;
+    --   via galley: ConvConnect EdConnect event to self
     update N E s2o o2s = case (ucStatus s2o, ucStatus o2s) of
       (Accepted, Accepted) -> return $ ConnectionExists s2o
       (Accepted, Blocked) -> return $ ConnectionExists s2o
@@ -132,11 +142,18 @@ createConnection N E self ConnectionRequest {..} conn = do
       (_, Accepted) -> accept N E s2o o2s
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
+      --
+      -- if connect conversation did not exist before (not possible here?):
+      --   via galley: ConvCreate EdConversation event to self
+      --   via galley: ConvConnect EdConnect event to self
+      -- if conversation existed, but other didn't join/accept yet;
+      --   via galley: ConvConnect EdConnect event to self
       (_, Ignored) -> resend E s2o o2s
       (_, Pending) -> resend E s2o o2s
       (_, Cancelled) -> resend E s2o o2s
     -- ConnectionUpdated event to self
     -- ConnectionUpdated event to other
+    --
     -- if the conversation existed and had < 2 members before
     --   via galley: MemberJoin EdMembersJoin event to you
     -- if the conversation existed and only the other already was member before
@@ -166,6 +183,12 @@ createConnection N E self ConnectionRequest {..} conn = do
       return $ ConnectionExists s2o'
     -- ConnectionUpdated event to self
     -- ConnectionUpdated event to other
+    --
+    -- if connect conversation did not exist before:
+    --   via galley: ConvCreate EdConversation event to self
+    --   via galley: ConvConnect EdConnect event to self
+    -- if conversation existed, but other didn't join/accept yet;
+    --   via galley: ConvConnect EdConnect event to self
     resend E s2o o2s = do
       when (ucStatus s2o `notElem` [Sent, Accepted]) $
         checkLimit self
@@ -174,6 +197,12 @@ createConnection N E self ConnectionRequest {..} conn = do
           . msg (val "Resending connection request")
       -- ConnectionUpdated event to self
       -- ConnectionUpdated event to other
+      --
+      -- if connect conversation did not exist before:
+      --   via galley: ConvCreate EdConversation event to self
+      --   via galley: ConvConnect EdConnect event to self
+      -- if conversation existed, but other didn't join/accept yet;
+      --   via galley: ConvConnect EdConnect event to self
       s2o' <- insert E (Just s2o) (Just o2s)
       return $ ConnectionExists s2o'
     change c s = ConnectionExists <$> lift (Data.updateConnection c s)
@@ -190,7 +219,12 @@ createConnection N E self ConnectionRequest {..} conn = do
 --
 -- ConnectionUpdated event to self, if our state changes
 -- ConnectionUpdated event to other, if their state changes as well
+--
+-- when moving to Sent or Accepted, this potentially can cause events to be sent from Galley when joining the connect conversation:
+--   via galley: MemberJoin EdMembersJoin event to you
+--   via galley: MemberJoin EdMembersJoin event to other
 updateConnection ::
+  N ->
   E ->
   -- | From
   UserId ->
@@ -201,7 +235,7 @@ updateConnection ::
   -- | Acting device connection ID
   Maybe ConnId ->
   ExceptT ConnectionError AppIO (Maybe UserConnection)
-updateConnection E self other newStatus conn = do
+updateConnection N E self other newStatus conn = do
   s2o <- connection self other
   o2s <- connection other self
   s2o' <- case (ucStatus s2o, ucStatus o2s, newStatus) of
@@ -248,6 +282,10 @@ updateConnection E self other newStatus conn = do
         Intra.onConnectionEvent E self conn e2s
   return s2o'
   where
+    -- if the conversation existed and had < 2 members before
+    --   via galley: MemberJoin EdMembersJoin event to you
+    -- if the conversation existed and only the other already was member before
+    --   via galley: MemberJoin EdMembersJoin event to other
     accept s2o o2s = do
       checkLimit self
       Log.info $
@@ -277,13 +315,21 @@ updateConnection E self other newStatus conn = do
           . msg (val "Blocking connection")
       for_ (ucConvId s2o) $ Intra.blockConv (ucFrom s2o) conn
       Just <$> Data.updateConnection s2o Blocked
+    -- if the conversation existed and had < 2 members before
+    --   via galley: MemberJoin EdMembersJoin event to you
+    -- if the conversation existed and only the other already was member before
+    --   via galley: MemberJoin EdMembersJoin event to other
     unblock s2o o2s new = do
       when (new `elem` [Sent, Accepted]) $
         checkLimit self
       Log.info $
         Log.connection self (ucTo s2o)
           . msg (val "Unblocking connection")
-      cnv <- lift $ for (ucConvId s2o) $ Intra.unblockConv undefined (ucFrom s2o) conn
+      -- if the conversation existed and had < 2 members before
+      --   via galley: MemberJoin EdMembersJoin event to you
+      -- if the conversation existed and only the other already was member before
+      --   via galley: MemberJoin EdMembersJoin event to other
+      cnv <- lift $ for (ucConvId s2o) $ Intra.unblockConv N (ucFrom s2o) conn
       when (ucStatus o2s == Sent && new == Accepted) $ lift $ do
         o2s' <-
           if (cnvType <$> cnv) /= Just ConnectConv
@@ -308,14 +354,20 @@ updateConnection E self other newStatus conn = do
 
 -- ConnectionUpdated event to self and users connecting with
 --
--- TODO(createConnectConversation)
+-- This will cause events to be sent from Galley:
+-- for connect conversations that did not exist before:
+--   via galley: ConvCreate EdConversation event to self
+-- if others didn't join a connect conversation with self before:
+--   via galley: ConvConnect EdConnect event to self
+--   via galley: MemberJoin EdMembersJoin event to you and other
 autoConnect ::
+  N ->
   E ->
   UserId ->
   Set UserId ->
   Maybe ConnId ->
   ExceptT ConnectionError AppIO [UserConnection]
-autoConnect E from (Set.toList -> to) conn = do
+autoConnect N E from (Set.toList -> to) conn = do
   selfActive <- lift $ Data.isActivated from
   -- FIXME: checkLimit from
   -- Checking the limit here is currently a too heavy operation
@@ -331,6 +383,11 @@ autoConnect E from (Set.toList -> to) conn = do
       return $ maybe us (Team.notTeamMember us . view Team.teamMembers) mems
     connectAll activeOthers = do
       others <- selectOthers activeOthers
+      -- if conversation did not exist before:
+      --   via galley: ConvCreate EdConversation event to self
+      -- if other didn't join the connect conversation yet:
+      --   via galley: ConvConnect EdConnect event to self
+      --   via galley: MemberJoin EdMembersJoin event to you and other
       convs <- mapM (createConv from) others
       self <- Data.lookupName from
       ucs <- Data.connectUsers from convs
@@ -345,8 +402,14 @@ autoConnect E from (Set.toList -> to) conn = do
     selectOthers usrs = do
       existing <- map csFrom <$> Data.lookupConnectionStatus usrs [from]
       return $ filter (`notElem` existing) usrs
+    -- Can send some events via galley:
+    --
+    -- if conversation did not exist before:
+    --   via galley: ConvCreate EdConversation event to self
+    -- if other didn't join the connect conversation yet:
+    --   via galley: ConvConnect EdConnect event to self
+    --   via galley: MemberJoin EdMembersJoin event to you and other
     createConv s o = do
-      -- TODO(createConnectConversation)
       -- via galley, if conversation did not exist before:
       --   ConvCreate EdConversation event to self
       --   ConvConnect EdConnect event to self
@@ -357,6 +420,7 @@ autoConnect E from (Set.toList -> to) conn = do
       --   via galley: MemberJoin EdMembersJoin event to you
       -- if the conversation existed and only the other already was member before
       --   via galley: MemberJoin EdMembersJoin event to other
+      -- NOTE that this accepts as the other!
       _ <- Intra.acceptConnectConv N o conn c
       return (o, c)
     -- Note: The events sent to the users who got auto-connected to 'from'
