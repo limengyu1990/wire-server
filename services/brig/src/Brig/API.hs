@@ -80,7 +80,7 @@ sitemap o = do
   -- if others didn't join a connect conversation with self before:
   --   via galley: ConvConnect EdConnect event to self
   --   via galley: MemberJoin EdMembersJoin event to you and other
-  post "/i/users/:uid/auto-connect" (continue (autoConnectH N E)) $
+  post "/i/users/:uid/auto-connect" (continue autoConnectH) $
     accept "application" "json"
       .&. capture "uid"
       .&. opt (header "Z-Connection")
@@ -88,7 +88,7 @@ sitemap o = do
   -- UserActivated event to self, if user is team user
   -- UserActivated event to self, if user has SSO ID
   -- UserIdentityUpdated event to self, if email or phone get activated (should always happen)
-  post "/i/users" (continue (createUserNoVerifyH E)) $
+  post "/i/users" (continue createUserNoVerifyH) $
     accept "application" "json"
       .&. jsonRequest @NewUser
   put "/i/self/email" (continue changeSelfEmailNoSendH) $
@@ -97,7 +97,7 @@ sitemap o = do
   -- when internal event is handled asynchronously:
   --   UserDeleted event to contacts
   --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  delete "/i/users/:uid" (continue (deleteUserNoVerifyH N E)) $
+  delete "/i/users/:uid" (continue deleteUserNoVerifyH) $
     capture "uid"
   get "/i/users/connections-status" (continue deprecatedGetConnectionsStatusH) $
     query "users"
@@ -128,7 +128,7 @@ sitemap o = do
     accept "application" "json"
       .&. (param "email" ||| param "phone")
   -- UserIdentityRemoved event to self
-  post "/i/users/revoke-identity" (continue (revokeIdentityH E)) $
+  post "/i/users/revoke-identity" (continue revokeIdentityH) $
     param "email" ||| param "phone"
   head "/i/users/blacklist" (continue checkBlacklistH) $
     param "email" ||| param "phone"
@@ -171,19 +171,19 @@ sitemap o = do
   -- ClientAdded event to self
   -- UserLegalHoldEnabled event to contacts, if client is legalhold
   -- ClientRemoved event to self, if removing old clients
-  post "/i/clients/:uid" (continue (addClientInternalH E)) $
+  post "/i/clients/:uid" (continue addClientInternalH) $
     capture "uid"
       .&. jsonRequest @NewClient
       .&. opt (header "Z-Connection")
       .&. accept "application" "json"
   -- LegalHoldClientRequested event to contacts
-  post "/i/clients/legalhold/:uid/request" (continue (legalHoldClientRequestedH E)) $
+  post "/i/clients/legalhold/:uid/request" (continue legalHoldClientRequestedH) $
     capture "uid"
       .&. jsonRequest @LegalHoldClientRequest
       .&. accept "application" "json"
   -- ClientRemoved event to self
   -- UserLegalHoldDisabled event to contacts
-  delete "/i/clients/legalhold/:uid" (continue (removeLegalHoldClientH E)) $
+  delete "/i/clients/legalhold/:uid" (continue removeLegalHoldClientH) $
     capture "uid"
       .&. accept "application" "json"
   -- /users -----------------------------------------------------------------
@@ -201,7 +201,7 @@ sitemap o = do
   -- if the user is expired, an internal event is handled asynchronously:
   --   UserDeleted event to contacts
   --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  head "/users/:uid" (continue (checkUserExistsH N E)) $
+  head "/users/:uid" (continue checkUserExistsH) $
     header "Z-User"
       .&. capture "uid"
   document "HEAD" "userExists" $ do
@@ -215,7 +215,7 @@ sitemap o = do
   -- if the user is expired, an internal event is handled asynchronously:
   --   UserDeleted event to contacts
   --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  get "/users/:uid" (continue (getUserH N E)) $
+  get "/users/:uid" (continue getUserH) $
     accept "application" "json"
       .&. header "Z-User"
       .&. capture "uid"
@@ -264,7 +264,7 @@ sitemap o = do
   -- if the user is expired, an internal event is handled asynchronously:
   --   UserDeleted event to contacts
   --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  get "/users" (continue (listUsersH N E)) $
+  get "/users" (continue listUsersH) $
     accept "application" "json"
       .&. header "Z-User"
       .&. (param "ids" ||| param "handles")
@@ -373,7 +373,7 @@ sitemap o = do
   ---
 
   -- UserUpdated event to contacts
-  put "/self" (continue (updateUserH E)) $
+  put "/self" (continue updateUserH) $
     header "Z-User"
       .&. header "Z-Connection"
       .&. jsonRequest @UserUpdate
@@ -453,7 +453,7 @@ sitemap o = do
   --
 
   -- UserUpdated event to contacts
-  put "/self/handle" (continue (changeHandleH E)) $
+  put "/self/handle" (continue changeHandleH) $
     header "Z-User"
       .&. header "Z-Connection"
       .&. jsonRequest @HandleUpdate
@@ -467,7 +467,7 @@ sitemap o = do
   ---
 
   -- UserIdentityRemoved event to self
-  delete "/self/phone" (continue (removePhoneH E)) $
+  delete "/self/phone" (continue removePhoneH) $
     header "Z-User"
       .&. header "Z-Connection"
   document "DELETE" "removePhone" $ do
@@ -481,7 +481,7 @@ sitemap o = do
   ---
 
   -- UserIdentityRemoved event to self
-  delete "/self/email" (continue (removeEmailH E)) $
+  delete "/self/email" (continue removeEmailH) $
     header "Z-User"
       .&. header "Z-Connection"
   document "DELETE" "removeEmail" $ do
@@ -496,7 +496,7 @@ sitemap o = do
 
   -- UserDeleted event to contacts
   -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  delete "/self" (continue (deleteUserH N E)) $
+  delete "/self" (continue deleteUserH) $
     header "Z-User"
       .&. jsonRequest @DeleteUser
       .&. accept "application" "json"
@@ -519,7 +519,7 @@ sitemap o = do
 
   -- UserDeleted event to contacts
   -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  post "/delete" (continue (verifyDeleteUserH N E)) $
+  post "/delete" (continue verifyDeleteUserH) $
     jsonRequest @VerifyDeleteUser
       .&. accept "application" "json"
   document "POST" "verifyDeleteUser" $ do
@@ -539,7 +539,7 @@ sitemap o = do
   --  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
   --   via galley: ConvCreate EdConversation event to self
   --   via galley: ConvConnect EdConnect event to self
-  post "/connections" (continue (createConnectionH N E)) $
+  post "/connections" (continue createConnectionH) $
     accept "application" "json"
       .&. header "Z-User"
       .&. header "Z-Connection"
@@ -583,7 +583,7 @@ sitemap o = do
   -- when moving to Sent or Accepted, this potentially can cause events to be sent from Galley when joining the connect conversation:
   --   via galley: MemberJoin EdMembersJoin event to you
   --   via galley: MemberJoin EdMembersJoin event to other
-  put "/connections/:id" (continue (updateConnectionH N E)) $
+  put "/connections/:id" (continue updateConnectionH) $
     accept "application" "json"
       .&. header "Z-User"
       .&. header "Z-Connection"
@@ -618,7 +618,7 @@ sitemap o = do
 
   -- ClientAdded event to self
   -- ClientRemoved event to self, if removing old clients due to max number
-  post "/clients" (continue (addClientH E)) $
+  post "/clients" (continue addClientH) $
     jsonRequest @NewClient
       .&. header "Z-User"
       .&. header "Z-Connection"
@@ -651,7 +651,7 @@ sitemap o = do
   ---
 
   -- ClientRemoved event to self
-  delete "/clients/:client" (continue (rmClientH E)) $
+  delete "/clients/:client" (continue rmClientH) $
     jsonRequest @RmClient
       .&. header "Z-User"
       .&. header "Z-Connection"
@@ -700,7 +700,7 @@ sitemap o = do
   --- Properties
 
   -- PropertySet event to self
-  put "/properties/:key" (continue (setPropertyH E)) $
+  put "/properties/:key" (continue setPropertyH) $
     header "Z-User"
       .&. header "Z-Connection"
       .&. capture "key"
@@ -715,7 +715,7 @@ sitemap o = do
   ---
 
   -- PropertyDeleted event to self
-  delete "/properties/:key" (continue (deletePropertyH E)) $
+  delete "/properties/:key" (continue deletePropertyH) $
     header "Z-User"
       .&. header "Z-Connection"
       .&. capture "key"
@@ -727,7 +727,7 @@ sitemap o = do
   ---
 
   -- PropertiesCleared event to self
-  delete "/properties" (continue (clearPropertiesH E)) $
+  delete "/properties" (continue clearPropertiesH) $
     header "Z-User"
       .&. header "Z-Connection"
   document "DELETE" "clearProperties" $ do
@@ -771,7 +771,7 @@ sitemap o = do
   -- UserActivated event to self, if user has SSO ID
   -- UserIdentityUpdated event to self, if user has newUserPhoneCode
   -- UserIdentityUpdated event to self, if user has newUserEmailCode (unless team email invite)
-  post "/register" (continue (createUserH E)) $
+  post "/register" (continue createUserH) $
     accept "application" "json"
       .&. jsonRequest @NewUserPublic
   document "POST" "register" $ do
@@ -795,7 +795,7 @@ sitemap o = do
 
   -- UserActivated event to self, if account gets activated
   -- UserIdentityUpdated event to self, if email or phone get activated
-  get "/activate" (continue (activateH E)) $
+  get "/activate" (continue activateH) $
     query "key"
       .&. query "code"
   document "GET" "activate" $ do
@@ -815,7 +815,7 @@ sitemap o = do
   --
   -- UserActivated event to self, if account gets activated
   -- UserIdentityUpdated event to self, if email or phone get activated
-  post "/activate" (continue (activateKeyH E)) $
+  post "/activate" (continue activateKeyH) $
     accept "application" "json"
       .&. jsonRequest @Activate
   document "POST" "activate" $ do
@@ -900,19 +900,15 @@ sitemap o = do
 ---------------------------------------------------------------------------
 -- Handlers
 
--- PropertySet event to self
-setPropertyH :: E -> UserId ::: ConnId ::: PropertyKey ::: JsonRequest PropertyValue -> Handler Response
-setPropertyH E (u ::: c ::: k ::: req) = do
+setPropertyH :: UserId ::: ConnId ::: PropertyKey ::: JsonRequest PropertyValue -> Handler Response
+setPropertyH (u ::: c ::: k ::: req) = do
   propkey <- safeParsePropertyKey k
   propval <- safeParsePropertyValue (lazyRequestBody (fromJsonRequest req))
-  -- PropertySet event to self
-  empty <$ setProperty E u c propkey propval
+  empty <$ setProperty u c propkey propval
 
--- PropertySet event to self
-setProperty :: E -> UserId -> ConnId -> PropertyKey -> PropertyValue -> Handler ()
-setProperty E u c propkey propval = do
-  -- PropertySet event to self
-  API.setProperty E u c propkey propval !>> propDataError
+setProperty :: UserId -> ConnId -> PropertyKey -> PropertyValue -> Handler ()
+setProperty u c propkey propval = do
+  API.setProperty u c propkey propval !>> propDataError
 
 safeParsePropertyKey :: PropertyKey -> Handler PropertyKey
 safeParsePropertyKey k = do
@@ -932,13 +928,11 @@ safeParsePropertyValue lreqbody = do
     throwStd propertyValueTooLarge
   hoistEither $ fmapL (StdError . badRequest . pack) (eitherDecode lbs)
 
--- PropertyDeleted event to self
-deletePropertyH :: E -> UserId ::: ConnId ::: PropertyKey -> Handler Response
-deletePropertyH E (u ::: c ::: k) = lift (API.deleteProperty E u c k) >> return empty
+deletePropertyH :: UserId ::: ConnId ::: PropertyKey -> Handler Response
+deletePropertyH (u ::: c ::: k) = lift (API.deleteProperty u c k) >> return empty
 
--- PropertiesCleared event to self
-clearPropertiesH :: E -> UserId ::: ConnId -> Handler Response
-clearPropertiesH E (u ::: c) = lift (API.clearProperties E u c) >> return empty
+clearPropertiesH :: UserId ::: ConnId -> Handler Response
+clearPropertiesH (u ::: c) = lift (API.clearProperties u c) >> return empty
 
 getPropertyH :: UserId ::: PropertyKey ::: JSON -> Handler Response
 getPropertyH (u ::: k ::: _) = do
@@ -974,71 +968,48 @@ getMultiPrekeyBundles body = do
     throwStd tooManyClients
   API.claimMultiPrekeyBundles body
 
--- ClientAdded event to self
--- ClientRemoved event to self, if removing old clients due to max number
-addClientH :: E -> JsonRequest NewClient ::: UserId ::: ConnId ::: Maybe IpAddr ::: JSON -> Handler Response
-addClientH E (req ::: usr ::: con ::: ip ::: _) = do
+addClientH :: JsonRequest NewClient ::: UserId ::: ConnId ::: Maybe IpAddr ::: JSON -> Handler Response
+addClientH (req ::: usr ::: con ::: ip ::: _) = do
   new <- parseJsonBody req
-  -- ClientAdded event to self
-  -- ClientRemoved event to self, if removing old clients due to max number
-  clt <- addClient E new usr con ip
+  clt <- addClient new usr con ip
   let loc = toByteString' $ clientId clt
   pure . setStatus status201 . addHeader "Location" loc . json $ clt
 
--- ClientAdded event to self
--- ClientRemoved event to self, if removing old clients due to max number
-addClient :: E -> NewClient -> UserId -> ConnId -> Maybe IpAddr -> Handler Client
-addClient E new usr con ip = do
+addClient :: NewClient -> UserId -> ConnId -> Maybe IpAddr -> Handler Client
+addClient new usr con ip = do
   -- Users can't add legal hold clients
   when (newClientType new == LegalHoldClientType) $
     throwE (clientError ClientLegalHoldCannotBeAdded)
-  -- ClientAdded event to self
-  -- UserLegalHoldEnabled event to contacts, if client is legalhold
-  -- ClientRemoved event to self, if removing old clients
-  API.addClient E usr (Just con) (ipAddr <$> ip) new !>> clientError
+  API.addClient usr (Just con) (ipAddr <$> ip) new !>> clientError
 
 -- | Add a client without authentication checks
---
--- ClientAdded event to self
--- UserLegalHoldEnabled event to contacts, if client is legalhold
--- ClientRemoved event to self, if removing old clients
-addClientInternalH :: E -> UserId ::: JsonRequest NewClient ::: Maybe ConnId ::: JSON -> Handler Response
-addClientInternalH E (usr ::: req ::: connId ::: _) = do
+addClientInternalH :: UserId ::: JsonRequest NewClient ::: Maybe ConnId ::: JSON -> Handler Response
+addClientInternalH (usr ::: req ::: connId ::: _) = do
   new <- parseJsonBody req
-  setStatus status201 . json <$> addClientInternal E usr new connId
+  setStatus status201 . json <$> addClientInternal usr new connId
 
--- ClientAdded event to self
--- UserLegalHoldEnabled event to contacts, if client is legalhold
--- ClientRemoved event to self, if removing old clients
-addClientInternal :: E -> UserId -> NewClient -> Maybe ConnId -> Handler Client
-addClientInternal E usr new connId = do
-  API.addClient E usr connId Nothing new !>> clientError
+addClientInternal :: UserId -> NewClient -> Maybe ConnId -> Handler Client
+addClientInternal usr new connId = do
+  API.addClient usr connId Nothing new !>> clientError
 
--- ClientRemoved event to self
-rmClientH :: E -> JsonRequest RmClient ::: UserId ::: ConnId ::: ClientId ::: JSON -> Handler Response
-rmClientH E (req ::: usr ::: con ::: clt ::: _) = do
+rmClientH :: JsonRequest RmClient ::: UserId ::: ConnId ::: ClientId ::: JSON -> Handler Response
+rmClientH (req ::: usr ::: con ::: clt ::: _) = do
   body <- parseJsonBody req
-  empty <$ rmClient E body usr con clt
+  empty <$ rmClient body usr con clt
 
--- ClientRemoved event to self
-rmClient :: E -> RmClient -> UserId -> ConnId -> ClientId -> Handler ()
-rmClient E body usr con clt = do
-  -- ClientRemoved event to self
-  API.rmClient E usr con clt (rmPassword body) !>> clientError
+rmClient :: RmClient -> UserId -> ConnId -> ClientId -> Handler ()
+rmClient body usr con clt = do
+  API.rmClient usr con clt (rmPassword body) !>> clientError
 
--- LegalHoldClientRequested event to contacts
-legalHoldClientRequestedH :: E -> UserId ::: JsonRequest LegalHoldClientRequest ::: JSON -> Handler Response
-legalHoldClientRequestedH E (targetUser ::: req ::: _) = do
+legalHoldClientRequestedH :: UserId ::: JsonRequest LegalHoldClientRequest ::: JSON -> Handler Response
+legalHoldClientRequestedH (targetUser ::: req ::: _) = do
   clientRequest <- parseJsonBody req
-  -- LegalHoldClientRequested event to contacts
-  lift $ API.legalHoldClientRequested E targetUser clientRequest
+  lift $ API.legalHoldClientRequested targetUser clientRequest
   return $ setStatus status200 empty
 
--- ClientRemoved event to self
--- UserLegalHoldDisabled event to contacts
-removeLegalHoldClientH :: E -> UserId ::: JSON -> Handler Response
-removeLegalHoldClientH E (uid ::: _) = do
-  lift $ API.removeLegalHoldClient E uid
+removeLegalHoldClientH :: UserId ::: JSON -> Handler Response
+removeLegalHoldClientH (uid ::: _) = do
+  lift $ API.removeLegalHoldClient uid
   return $ setStatus status200 empty
 
 updateClientH :: JsonRequest UpdateClient ::: UserId ::: ClientId ::: JSON -> Handler Response
@@ -1104,28 +1075,12 @@ getRichInfo self user = do
 listPrekeyIdsH :: UserId ::: ClientId ::: JSON -> Handler Response
 listPrekeyIdsH (usr ::: clt ::: _) = json <$> lift (API.lookupPrekeyIds usr clt)
 
--- ConnectionUpdated event to self and users connecting with
---
--- This will cause events to be sent from Galley:
--- for connect conversations that did not exist before:
---   via galley: ConvCreate EdConversation event to self
--- if others didn't join a connect conversation with self before:
---   via galley: ConvConnect EdConnect event to self
---   via galley: MemberJoin EdMembersJoin event to you and other
-autoConnectH :: N -> E -> JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
-autoConnectH N E (_ ::: uid ::: conn ::: req) = do
-  json <$> (autoConnect N E uid conn =<< parseJsonBody req)
+autoConnectH :: JSON ::: UserId ::: Maybe ConnId ::: JsonRequest UserSet -> Handler Response
+autoConnectH (_ ::: uid ::: conn ::: req) = do
+  json <$> (autoConnect uid conn =<< parseJsonBody req)
 
--- ConnectionUpdated event to self and users connecting with
---
--- This will cause events to be sent from Galley:
--- for connect conversations that did not exist before:
---   via galley: ConvCreate EdConversation event to self
--- if others didn't join a connect conversation with self before:
---   via galley: ConvConnect EdConnect event to self
---   via galley: MemberJoin EdMembersJoin event to you and other
-autoConnect :: N -> E -> UserId -> Maybe ConnId -> UserSet -> Handler [UserConnection]
-autoConnect N E uid conn (UserSet to) = do
+autoConnect :: UserId -> Maybe ConnId -> UserSet -> Handler [UserConnection]
+autoConnect uid conn (UserSet to) = do
   let num = Set.size to
   when (num < 1)
     $ throwStd
@@ -1133,25 +1088,12 @@ autoConnect N E uid conn (UserSet to) = do
   when (num > 25)
     $ throwStd
     $ badRequest "Too many users given for auto-connect (> 25)."
-  -- ConnectionUpdated event to self and users connecting with
-  --
-  -- This will cause events to be sent from Galley:
-  -- for connect conversations that did not exist before:
-  --   via galley: ConvCreate EdConversation event to self
-  -- if others didn't join a connect conversation with self before:
-  --   via galley: ConvConnect EdConnect event to self
-  --   via galley: MemberJoin EdMembersJoin event to you and other
-  API.autoConnect N E uid to conn !>> connError
+  API.autoConnect uid to conn !>> connError
 
 -- docs/reference/user/registration.md {#RefRegistration}
---
--- UserActivated event to self, if user is team user
--- UserActivated event to self, if user has SSO ID
--- UserIdentityUpdated event to self, if user has newUserPhoneCode
--- UserIdentityUpdated event to self, if user has newUserEmailCode (unless team email invite)
-createUserH :: E -> JSON ::: JsonRequest NewUserPublic -> Handler Response
-createUserH E (_ ::: req) = do
-  CreateUserResponse cok loc prof <- createUser E =<< parseJsonBody req
+createUserH :: JSON ::: JsonRequest NewUserPublic -> Handler Response
+createUserH (_ ::: req) = do
+  CreateUserResponse cok loc prof <- createUser =<< parseJsonBody req
   lift . Auth.setResponseCookie cok
     . setStatus status201
     . addHeader "Location" (toByteString' loc)
@@ -1159,19 +1101,11 @@ createUserH E (_ ::: req) = do
 
 data CreateUserResponse = CreateUserResponse (Cookie (ZAuth.Token ZAuth.User)) UserId SelfProfile
 
--- UserActivated event to self, if user is team user
--- UserActivated event to self, if user has SSO ID
--- UserIdentityUpdated event to self, if user has newUserPhoneCode
--- UserIdentityUpdated event to self, if user has newUserEmailCode (unless team email invite)
-createUser :: E -> NewUserPublic -> Handler CreateUserResponse
-createUser E (NewUserPublic new) = do
+createUser :: NewUserPublic -> Handler CreateUserResponse
+createUser (NewUserPublic new) = do
   for_ (newUserEmail new) $ checkWhitelist . Left
   for_ (newUserPhone new) $ checkWhitelist . Right
-  -- UserActivated event to self, if user is team user
-  -- UserActivated event to self, if user has SSO ID
-  -- UserIdentityUpdated event to self, if user has newUserPhoneCode
-  -- UserIdentityUpdated event to self, if user has newUserEmailCode (unless team email invite)
-  result <- API.createUser E new !>> newUserError
+  result <- API.createUser new !>> newUserError
   let acc = createdAccount result
   let usr = accountUser acc
   let eac = createdEmailActivation result
@@ -1201,28 +1135,18 @@ createUser E (NewUserPublic new) = do
     sendWelcomeEmail e (CreateUserTeam t n) (NewTeamMember _) l = Team.sendMemberWelcomeMail e t n l
     sendWelcomeEmail e (CreateUserTeam t n) (NewTeamMemberSSO _) l = Team.sendMemberWelcomeMail e t n l
 
--- UserActivated event to self, if user is team user
--- UserActivated event to self, if user has SSO ID
--- UserIdentityUpdated event to self, if email or phone get activated (should always happen)
-createUserNoVerifyH :: E -> JSON ::: JsonRequest NewUser -> Handler Response
-createUserNoVerifyH E (_ ::: req) = do
-  CreateUserNoVerifyResponse uid prof <- createUserNoVerify E =<< parseJsonBody req
+createUserNoVerifyH :: JSON ::: JsonRequest NewUser -> Handler Response
+createUserNoVerifyH (_ ::: req) = do
+  CreateUserNoVerifyResponse uid prof <- createUserNoVerify =<< parseJsonBody req
   return . setStatus status201
     . addHeader "Location" (toByteString' uid)
     $ json prof
 
 data CreateUserNoVerifyResponse = CreateUserNoVerifyResponse UserId SelfProfile
 
--- UserActivated event to self, if user is team user
--- UserActivated event to self, if user has SSO ID
--- UserIdentityUpdated event to self, if email or phone get activated (should always happen)
-createUserNoVerify :: E -> NewUser -> Handler CreateUserNoVerifyResponse
-createUserNoVerify E uData = do
-  -- UserActivated event to self, if user is team user
-  -- UserActivated event to self, if user has SSO ID
-  -- UserIdentityUpdated event to self, if user has newUserPhoneCode
-  -- UserIdentityUpdated event to self, if user has newUserEmailCode (unless team email invite)
-  result <- API.createUser E uData !>> newUserError
+createUserNoVerify :: NewUser -> Handler CreateUserNoVerifyResponse
+createUserNoVerify uData = do
+  result <- API.createUser uData !>> newUserError
   let acc = createdAccount result
   let usr = accountUser acc
   let uid = userId usr
@@ -1231,51 +1155,29 @@ createUserNoVerify E uData = do
   for_ (catMaybes [eac, pac]) $ \adata ->
     let key = ActivateKey $ activationKey adata
         code = activationCode adata
-     in -- UserActivated event to self, if account gets activated
-        -- (not happening)
-        -- UserIdentityUpdated event to self, if email or phone get activated
-        -- (if eac or pac are set, which is if they were not already activated in createUser)
-        API.activate E key code (Just uid) !>> actError
+     in API.activate key code (Just uid) !>> actError
   return $ CreateUserNoVerifyResponse uid (SelfProfile usr)
 
--- when internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-deleteUserNoVerifyH :: N -> E -> UserId -> Handler Response
-deleteUserNoVerifyH N E uid = do
-  setStatus status202 empty <$ deleteUserNoVerify N E uid
+deleteUserNoVerifyH :: UserId -> Handler Response
+deleteUserNoVerifyH uid = do
+  setStatus status202 empty <$ deleteUserNoVerify uid
 
--- when internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-deleteUserNoVerify :: N -> E -> UserId -> Handler ()
-deleteUserNoVerify N E uid = do
+deleteUserNoVerify :: UserId -> Handler ()
+deleteUserNoVerify uid = do
   void $ lift (API.lookupAccount uid) >>= ifNothing userNotFound
-  -- when internal event is handled asynchronously:
-  --   UserDeleted event to contacts
-  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  lift $ API.deleteUserNoVerify N E uid
+  lift $ API.deleteUserNoVerify uid
 
 changeSelfEmailNoSendH :: UserId ::: JsonRequest EmailUpdate -> Handler Response
 changeSelfEmailNoSendH (u ::: req) = changeEmail u req False
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-checkUserExistsH :: N -> E -> UserId ::: UserId -> Handler Response
-checkUserExistsH N E (self ::: uid) = do
-  exists <- lift $ checkUserExists N E self uid
+checkUserExistsH :: UserId ::: UserId -> Handler Response
+checkUserExistsH (self ::: uid) = do
+  exists <- lift $ checkUserExists self uid
   if exists then return empty else throwStd userNotFound
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-checkUserExists :: N -> E -> UserId -> UserId -> AppIO Bool
-checkUserExists N E self uid = do
-  -- when internal event is handled asynchronously:
-  --   UserDeleted event to contacts
-  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  isJust <$> API.lookupProfile N E self uid
+checkUserExists :: UserId -> UserId -> AppIO Bool
+checkUserExists self uid = do
+  isJust <$> API.lookupProfile self uid
 
 getSelfH :: JSON ::: UserId -> Handler Response
 getSelfH (_ ::: self) = do
@@ -1285,22 +1187,13 @@ getSelf :: UserId -> Handler SelfProfile
 getSelf self = do
   lift (API.lookupSelfProfile self) >>= ifNothing userNotFound
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-getUserH :: N -> E -> JSON ::: UserId ::: UserId -> Handler Response
-getUserH N E (_ ::: self ::: uid) = do
-  json <$> getUser N E self uid
+getUserH :: JSON ::: UserId ::: UserId -> Handler Response
+getUserH (_ ::: self ::: uid) = do
+  json <$> getUser self uid
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-getUser :: N -> E -> UserId -> UserId -> Handler UserProfile
-getUser N E self uid = do
-  -- if the user is expired, an internal event is handled asynchronously:
-  --   UserDeleted event to contacts
-  --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  lift (API.lookupProfile N E self uid) >>= ifNothing userNotFound
+getUser :: UserId -> UserId -> Handler UserProfile
+getUser self uid = do
+  lift (API.lookupProfile self uid) >>= ifNothing userNotFound
 
 getUserNameH :: JSON ::: UserId -> Handler Response
 getUserNameH (_ ::: self) = do
@@ -1309,32 +1202,23 @@ getUserNameH (_ ::: self) = do
     Just n -> json $ object ["name" .= n]
     Nothing -> setStatus status404 empty
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-listUsersH :: N -> E -> JSON ::: UserId ::: Either (List UserId) (List Handle) -> Handler Response
-listUsersH N E (_ ::: self ::: qry) =
-  toResponse <$> listUsers N E self qry
+listUsersH :: JSON ::: UserId ::: Either (List UserId) (List Handle) -> Handler Response
+listUsersH (_ ::: self ::: qry) =
+  toResponse <$> listUsers self qry
   where
     toResponse = \case
       [] -> setStatus status404 empty
       ps -> json ps
 
--- if the user is expired, an internal event is handled asynchronously:
---   UserDeleted event to contacts
---   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-listUsers :: N -> E -> UserId -> Either (List UserId) (List Handle) -> Handler [UserProfile]
-listUsers N E self = \case
-  Left us ->
-    -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
-    byIds N E (fromList us)
+listUsers :: UserId -> Either (List UserId) (List Handle) -> Handler [UserProfile]
+listUsers self = \case
+  Left us -> byIds (fromList us)
   Right hs -> do
     us <- catMaybes <$> mapM (lift . API.lookupHandle) (fromList hs)
     sameTeamSearchOnly <- fromMaybe False <$> view (settings . searchSameTeamOnly)
-    -- UserDeleted event to contacts of expired users, after internal event is handled asynchronously
     if sameTeamSearchOnly
-      then sameTeamOnly =<< byIds N E us
-      else byIds N E us
+      then sameTeamOnly =<< byIds us
+      else byIds us
   where
     sameTeamOnly :: [UserProfile] -> Handler [UserProfile]
     sameTeamOnly us = do
@@ -1342,10 +1226,7 @@ listUsers N E self = \case
       return $ case selfTeam of
         Just team -> filter (\x -> profileTeam x == Just team) us
         Nothing -> us
-    -- if the user is expired, an internal event is handled asynchronously:
-    --   UserDeleted event to contacts
-    --   via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-    byIds N E uids = lift $ API.lookupProfiles N E self uids
+    byIds uids = lift $ API.lookupProfiles self uids
 
 listActivatedAccountsH :: JSON ::: Either (List UserId) (List Handle) -> Handler Response
 listActivatedAccountsH (_ ::: qry) = do
@@ -1395,12 +1276,10 @@ data GetPasswordResetCodeResp = GetPasswordResetCodeResp (PasswordResetKey, Pass
 instance ToJSON GetPasswordResetCodeResp where
   toJSON (GetPasswordResetCodeResp (k, c)) = object ["key" .= k, "code" .= c]
 
--- UserUpdated event to contacts
-updateUserH :: E -> UserId ::: ConnId ::: JsonRequest UserUpdate -> Handler Response
-updateUserH E (uid ::: conn ::: req) = do
+updateUserH :: UserId ::: ConnId ::: JsonRequest UserUpdate -> Handler Response
+updateUserH (uid ::: conn ::: req) = do
   uu <- parseJsonBody req
-  -- UserUpdated event to contacts
-  lift $ API.updateUser E uid conn uu
+  lift $ API.updateUser uid conn uu
   return empty
 
 changeAccountStatusH :: UserId ::: JsonRequest AccountStatusUpdate -> Handler Response
@@ -1432,18 +1311,14 @@ changePhone u _ (puPhone -> phone) = do
   let apair = (activationKey adata, activationCode adata)
   lift $ sendActivationSms pn apair loc
 
--- UserIdentityRemoved event to self
-removePhoneH :: E -> UserId ::: ConnId -> Handler Response
-removePhoneH E (self ::: conn) = do
-  -- UserIdentityRemoved event to self
-  API.removePhone E self conn !>> idtError
+removePhoneH :: UserId ::: ConnId -> Handler Response
+removePhoneH (self ::: conn) = do
+  API.removePhone self conn !>> idtError
   return empty
 
--- UserIdentityRemoved event to self
-removeEmailH :: E -> UserId ::: ConnId -> Handler Response
-removeEmailH E (self ::: conn) = do
-  -- UserIdentityRemoved event to self
-  API.removeEmail E self conn !>> idtError
+removeEmailH :: UserId ::: ConnId -> Handler Response
+removeEmailH (self ::: conn) = do
+  API.removeEmail self conn !>> idtError
   return empty
 
 checkPasswordExistsH :: UserId -> Handler Response
@@ -1501,17 +1376,14 @@ getHandleInfoH (_ ::: _ ::: h) = do
     Just u -> json (UserHandleInfo u)
     Nothing -> setStatus status404 empty
 
--- UserUpdated event to contacts
-changeHandleH :: E -> UserId ::: ConnId ::: JsonRequest HandleUpdate -> Handler Response
-changeHandleH E (u ::: conn ::: req) = do
-  empty <$ (changeHandle E u conn =<< parseJsonBody req)
+changeHandleH :: UserId ::: ConnId ::: JsonRequest HandleUpdate -> Handler Response
+changeHandleH (u ::: conn ::: req) = do
+  empty <$ (changeHandle u conn =<< parseJsonBody req)
 
--- UserUpdated event to contacts
-changeHandle :: E -> UserId -> ConnId -> HandleUpdate -> Handler ()
-changeHandle E u conn (HandleUpdate h) = do
+changeHandle :: UserId -> ConnId -> HandleUpdate -> Handler ()
+changeHandle u conn (HandleUpdate h) = do
   handle <- validateHandle h
-  -- UserUpdated event to contacts
-  API.changeHandle E u conn handle !>> changeHandleError
+  API.changeHandle u conn handle !>> changeHandleError
 
 beginPasswordResetH :: JSON ::: JsonRequest NewPasswordReset -> Handler Response
 beginPasswordResetH (_ ::: req) = do
@@ -1559,45 +1431,18 @@ getConnectionsStatus ConnectionsStatusRequest {csrFrom, csrTo} flt = do
   where
     filterByRelation l rel = filter ((== rel) . csStatus) l
 
--- ConnectionUpdated event to self and other, unless both states already exist and (1) any state is blocked or (2) both sides already accepted
---
--- potentially can cause events to be sent from Galley:
--- if only the other already was member of connect conversation and has connection status Sent or Accepted:
---   via galley: MemberJoin EdMembersJoin event to you and other
---
---  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
---   via galley: ConvCreate EdConversation event to self
---   via galley: ConvConnect EdConnect event to self
-createConnectionH :: N -> E -> JSON ::: UserId ::: ConnId ::: JsonRequest ConnectionRequest -> Handler Response
-createConnectionH N E (_ ::: self ::: conn ::: req) = do
+createConnectionH :: JSON ::: UserId ::: ConnId ::: JsonRequest ConnectionRequest -> Handler Response
+createConnectionH (_ ::: self ::: conn ::: req) = do
   cr <- parseJsonBody req
-  -- ConnectionUpdated event to self, unless both states already exist and any state is blocked or both already accepted
-  -- ConnectionUpdated event to other, unless both states already exist and any state is blocked or both already accepted
-  --
-  -- potentially can cause events to be sent from Galley:
-  -- if only the other already was member of connect conversation and has connection status Sent or Accepted:
-  --   via galley: MemberJoin EdMembersJoin event to you and other
-  --
-  --  Also possible (for details check 'Galley.API.Create.createConnectConversation'):
-  --   via galley: ConvCreate EdConversation event to self
-  --   via galley: ConvConnect EdConnect event to self
-  rs <- API.createConnection N E self cr conn !>> connError
+  rs <- API.createConnection self cr conn !>> connError
   return $ case rs of
     ConnectionCreated c -> setStatus status201 $ json c
     ConnectionExists c -> json c
 
--- ConnectionUpdated event to self, if our state changes
--- ConnectionUpdated event to other, if their state changes as well
---
--- when moving to Sent or Accepted, this potentially can cause events to be sent from Galley when joining the connect conversation:
---   via galley: MemberJoin EdMembersJoin event to you
---   via galley: MemberJoin EdMembersJoin event to other
-updateConnectionH :: N -> E -> JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
-updateConnectionH N E (_ ::: self ::: conn ::: other ::: req) = do
+updateConnectionH :: JSON ::: UserId ::: ConnId ::: UserId ::: JsonRequest ConnectionUpdate -> Handler Response
+updateConnectionH (_ ::: self ::: conn ::: other ::: req) = do
   newStatus <- cuStatus <$> parseJsonBody req
-  -- ConnectionUpdated event to self, if our state changes
-  -- ConnectionUpdated event to other, if their state changes as well
-  mc <- API.updateConnection N E self other newStatus (Just conn) !>> connError
+  mc <- API.updateConnection self other newStatus (Just conn) !>> connError
   return $ case mc of
     Just c -> json c
     Nothing -> setStatus status204 empty
@@ -1614,11 +1459,9 @@ getConnectionH (_ ::: uid ::: uid') = lift $ do
     Just c -> json c
     Nothing -> setStatus status404 empty
 
--- UserIdentityRemoved event to self
-revokeIdentityH :: E -> Either Email Phone -> Handler Response
-revokeIdentityH E emailOrPhone = do
-  -- UserIdentityRemoved event to self
-  lift $ API.revokeIdentity E emailOrPhone
+revokeIdentityH :: Either Email Phone -> Handler Response
+revokeIdentityH emailOrPhone = do
+  lift $ API.revokeIdentity emailOrPhone
   return $ setStatus status200 empty
 
 checkBlacklistH :: Either Email Phone -> Handler Response
@@ -1713,26 +1556,18 @@ updateRichInfo uid rup = do
 -- FUTUREWORK: send an event
 -- Intra.onUserEvent uid (Just conn) (richInfoUpdate uid ri)
 
--- UserDeleted event to contacts
--- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-deleteUserH :: N -> E -> UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
-deleteUserH N E (u ::: r ::: _) = do
+deleteUserH :: UserId ::: JsonRequest DeleteUser ::: JSON -> Handler Response
+deleteUserH (u ::: r ::: _) = do
   body <- parseJsonBody r
-  -- UserDeleted event to contacts
-  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  res <- API.deleteUser N E u (deleteUserPassword body) !>> deleteUserError
+  res <- API.deleteUser u (deleteUserPassword body) !>> deleteUserError
   return $ case res of
     Nothing -> setStatus status200 empty
     Just ttl -> setStatus status202 (json (DeletionCodeTimeout ttl))
 
--- UserDeleted event to contacts
--- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-verifyDeleteUserH :: N -> E -> JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
-verifyDeleteUserH N E (r ::: _) = do
+verifyDeleteUserH :: JsonRequest VerifyDeleteUser ::: JSON -> Handler Response
+verifyDeleteUserH (r ::: _) = do
   body <- parseJsonBody r
-  -- UserDeleted event to contacts
-  -- via galley: MemberLeave EdMembersLeave event to members for all conversations the user was in
-  API.verifyDeleteUser N E body !>> deleteUserError
+  API.verifyDeleteUser body !>> deleteUserError
   return (setStatus status200 empty)
 
 getContactListH :: JSON ::: UserId -> Handler Response
@@ -1743,28 +1578,19 @@ getContactListH (_ ::: uid) = do
 -- activation
 
 -- docs/reference/user/activation.md {#RefActivationSubmit}
---
--- UserActivated event to self, if account gets activated
--- UserIdentityUpdated event to self, if email or phone get activated
-activateKeyH :: E -> JSON ::: JsonRequest Activate -> Handler Response
-activateKeyH E (_ ::: req) = respFromActivationRespWithStatus <$> (activate E =<< parseJsonBody req)
+activateKeyH :: JSON ::: JsonRequest Activate -> Handler Response
+activateKeyH (_ ::: req) = respFromActivationRespWithStatus <$> (activate =<< parseJsonBody req)
 
--- UserActivated event to self, if account gets activated
--- UserIdentityUpdated event to self, if email or phone get activated
-activateH :: E -> ActivationKey ::: ActivationCode -> Handler Response
-activateH E (k ::: c) = respFromActivationRespWithStatus <$> (activate E (Activate (ActivateKey k) c False))
+activateH :: ActivationKey ::: ActivationCode -> Handler Response
+activateH (k ::: c) = respFromActivationRespWithStatus <$> (activate (Activate (ActivateKey k) c False))
 
--- UserActivated event to self, if account gets activated
--- UserIdentityUpdated event to self, if email or phone get activated
-activate :: E -> Activate -> Handler ActivationRespWithStatus
-activate E (Activate tgt code dryrun)
+activate :: Activate -> Handler ActivationRespWithStatus
+activate (Activate tgt code dryrun)
   | dryrun = do
     API.preverify tgt code !>> actError
     return $ ActivationRespDryRun
   | otherwise = do
-    -- UserActivated event to self, if account gets activated
-    -- UserIdentityUpdated event to self, if email or phone get activated
-    result <- API.activate E tgt code Nothing !>> actError
+    result <- API.activate tgt code Nothing !>> actError
     return $ case result of
       ActivationSuccess ident first -> respond ident first
       ActivationPass -> ActivationRespPass
